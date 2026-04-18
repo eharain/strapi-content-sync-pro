@@ -1,0 +1,47 @@
+{
+  "name": "strapi-to-strapi-data-sync",
+  "version": "0.1.0",
+  "description": "Strapi v5 plugin for syncing data between Strapi instances",
+  "license": "MIT",
+  "author": {
+    "name": "Ejaz Husain Arain",
+    "email": "eharain@yahoo.com",
+    "url": "https://github.com/eharain/strapi-to-strapi-data-sync"
+  },
+  "exports": {
+    "./strapi-admin": {
+      "source": "./admin/src/index.js",
+      "import": "./admin/src/index.js",
+      "require": "./admin/src/index.js",
+      "default": "./admin/src/index.js"
+    },
+    "./strapi-server": {
+      "source": "./server/src/index.js",
+      "import": "./server/src/index.js",
+      "require": "./server/src/index.js",
+      "default": "./server/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "admin/",
+    "server/"
+  ],
+  "scripts": {},
+  "peerDependencies": {
+    "@strapi/strapi": "^5.0.0",
+    "react": "^17.0.0 || ^18.0.0",
+    "react-dom": "^17.0.0 || ^18.0.0",
+    "react-router-dom": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=6.0.0"
+  },
+  "strapi": {
+    "name": "strapi-to-strapi-data-sync",
+    "description": "Sync data between Strapi instances",
+    "kind": "plugin",
+    "displayName": "Strapi-to-Strapi Data Sync"
+  }
+}

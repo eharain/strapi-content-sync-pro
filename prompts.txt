@@ -1,0 +1,225 @@
+STEP 1 — Scaffold Plugin
+You are a senior Node.js and Strapi v5.x plugin developer.
+
+Create a Strapi plugin named "strapi-to-strapi-data-sync" 
+(package name: strapi-plugin-strapi-to-strapi-data-sync).
+
+Requirements:
+- Use JavaScript (not TypeScript)
+- Follow official Strapi v5.x plugin structure
+- Include:
+  - server/
+  - admin/
+  - routes
+  - controllers
+  - services
+
+Expose endpoint:
+GET /strapi-to-strapi-data-sync/ping → returns { status: "ok" }
+
+Ensure plugin is installable and loadable in Strapi.
+
+Provide full file structure and code.
+🔐 STEP 2 — Remote Server Configuration
+Extend the "strapi-to-strapi-data-sync" plugin.
+
+Add configuration storage for remote Strapi server:
+
+Fields:
+- baseUrl
+- apiToken
+- syncDirection ("push" | "pull" | "bidirectional")
+- instanceId (unique identifier for this server)
+- sharedSecret (for request signing)
+
+Requirements:
+- Use Strapi plugin store (core_store)
+- Create service:
+  - getConfig()
+  - setConfig(config)
+
+Expose endpoints:
+- POST /strapi-to-strapi-data-sync/config
+- GET /strapi-to-strapi-data-sync/config
+
+Ensure:
+- apiToken and sharedSecret are NOT exposed in GET response
+
+Provide full implementation.
+📦 STEP 3 — Content-Type Discovery
+Enhance the plugin to list all syncable content types.
+
+Requirements:
+- Use strapi.contentTypes
+- Include only:
+  - collection types
+  - user-defined APIs (exclude admin, upload, users-permissions)
+
+Return:
+- uid
+- kind
+- attributes (only primitive fields)
+
+Endpoint:
+GET /strapi-to-strapi-data-sync/content-types
+
+Provide service + controller.
+🎯 STEP 4 — Sync Configuration
+Add sync configuration management.
+
+Allow defining:
+- contentTypes to sync
+- direction per content type ("push", "pull", "both")
+- fields to include/exclude
+- enabled flag
+
+Schema example:
+{
+  contentTypes: [
+    {
+      uid: "api::product.product",
+      direction: "both",
+      fields: ["name", "price", "stock"],
+      enabled: true
+    }
+  ]
+}
+
+Store in plugin store.
+
+Endpoints:
+- POST /strapi-to-strapi-data-sync/sync-config
+- GET /strapi-to-strapi-data-sync/sync-config
+
+Provide full implementation.
+🔑 STEP 5 — Global Identity (syncId)
+Enhance the plugin with global identity support.
+
+Requirements:
+- Introduce "syncId" (UUID) for all synced records
+
+Behavior:
+- If record lacks syncId → generate UUID
+- Use syncId for matching records across instances
+
+Provide:
+- utility to ensure syncId
+- lifecycle hook integration (beforeCreate)
+
+Explain how to integrate across all content types safely.
+🔄 STEP 6 — Manual Sync Engine
+Implement manual sync engine.
+
+Create service:
+syncService.syncNow()
+
+Process:
+1. Load sync config
+2. For each enabled content type:
+   - Fetch local records
+   - Fetch remote records via REST API
+3. Compare using:
+   - syncId
+   - updatedAt
+
+Rules:
+- If local newer → push
+- If remote newer → pull
+
+Handle:
+- create
+- update
+
+Endpoint:
+POST /strapi-to-strapi-data-sync/sync-now
+
+Structure code cleanly into:
+- fetchers
+- comparators
+- appliers
+⏱️ STEP 7 — Incremental Sync
+Enhance sync engine with incremental sync.
+
+Requirements:
+- Maintain lastSyncAt per content type
+- Only fetch records updated after lastSyncAt
+- Update timestamp after successful sync
+
+Store in plugin store.
+
+Avoid full dataset sync.
+
+Update services accordingly.
+⚡ STEP 8 — Event-Based Sync
+Add real-time sync using Strapi lifecycle hooks.
+
+Hook into:
+- afterCreate
+- afterUpdate
+
+Behavior:
+- Immediately push changed record to remote
+
+Prevent infinite loops:
+- Add internal field: _syncSource
+- Skip if source === "remote"
+
+Provide lifecycle implementation.
+🔐 STEP 9 — Secure Communication
+Implement secure server-to-server communication.
+
+Requirements:
+- Use API token
+- Add HMAC signature using sharedSecret
+
+Headers:
+- x-sync-signature
+- x-sync-timestamp
+
+Implement:
+- signature generator
+- verification middleware
+
+Reject unauthorized requests.
+
+Provide full code.
+⚠️ STEP 10 — Conflict Resolution
+Add conflict resolution system.
+
+Config:
+- conflictStrategy:
+  - "latest"
+  - "local_wins"
+  - "remote_wins"
+
+Apply during record comparison.
+
+Ensure deterministic results.
+
+Provide implementation.
+🧪 STEP 11 — Logging
+Add logging system.
+
+Log:
+- sync runs
+- records processed
+- failures
+
+Store logs in a plugin collection type.
+
+Endpoints:
+- GET /strapi-to-strapi-data-sync/logs
+
+Make logs structured and filterable.
+🎛️ STEP 12 — Admin UI
+Create admin UI for the plugin.
+
+Features:
+- Configure remote server
+- Select content types
+- Trigger sync
+- View logs
+
+Keep UI simple.
+
+Use Strapi admin panel framework.

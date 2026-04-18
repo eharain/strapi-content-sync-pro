@@ -1,0 +1,24 @@
+{
+  "kind": "collectionType",
+  "collectionName": "sync_logs",
+  "info": {
+    "singularName": "sync-log",
+    "pluralName": "sync-logs",
+    "displayName": "Sync Log"
+  },
+  "options": {},
+  "pluginOptions": {
+    "content-manager": { "visible": false },
+    "content-type-builder": { "visible": false }
+  },
+  "attributes": {
+    "action": { "type": "string" },
+    "contentType": { "type": "string" },
+    "recordId": { "type": "string" },
+    "syncId": { "type": "string" },
+    "direction": { "type": "string" },
+    "status": { "type": "string" },
+    "message": { "type": "text" },
+    "details": { "type": "json" }
+  }
+}
