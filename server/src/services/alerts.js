@@ -1,7 +1,5 @@
 'use strict';
 
-const nodemailer = require('nodemailer');
-
 const STORE_KEY = 'sync-alerts-settings';
 
 /**
@@ -9,9 +7,17 @@ const STORE_KEY = 'sync-alerts-settings';
  * 
  * Manages notifications for sync success/failure events.
  * Supports:
- * - Strapi built-in notifications (admin panel)
- * - Email notifications (using user-configured SMTP)
+ * - Strapi built-in notifications (sync log)
+ * - Email notifications (using Strapi's email plugin - requires configuration)
  * - Custom webhook notifications
+ * 
+ * For email to work, you need to configure Strapi's email plugin:
+ * - @strapi/provider-email-sendgrid
+ * - @strapi/provider-email-mailgun
+ * - @strapi/provider-email-amazon-ses
+ * - @strapi/provider-email-nodemailer
+ * 
+ * See: https://docs.strapi.io/dev-docs/providers#configuring-providers
  */
 module.exports = ({ strapi }) => {
   function getStore() {
@@ -35,17 +41,8 @@ module.exports = ({ strapi }) => {
         onSuccess: false,
         onFailure: true,
         recipients: [],
-        // SMTP settings provided by user
-        smtp: {
-          host: '',
-          port: 587,
-          secure: false, // true for 465, false for other ports
-          auth: {
-            user: '',
-            pass: '',
-          },
-          from: '', // sender email address
-        },
+        // Optional: custom from address (uses Strapi email plugin default if not set)
+        from: '',
       },
       webhook: {
         enabled: false,
@@ -63,9 +60,6 @@ module.exports = ({ strapi }) => {
 
   // In-memory alert tracking for throttling
   let alertHistory = [];
-
-  // Cached email transporter
-  let emailTransporter = null;
 
   return {
     /**
@@ -92,27 +86,26 @@ module.exports = ({ strapi }) => {
               };
             }
           }
-          // Deep merge SMTP settings
-          if (data.channels.email?.smtp) {
-            settings.channels.email.smtp = {
-              ...DEFAULT_ALERT_SETTINGS.channels.email.smtp,
-              ...data.channels.email.smtp,
-              auth: {
-                ...DEFAULT_ALERT_SETTINGS.channels.email.smtp.auth,
-                ...(data.channels.email.smtp.auth || {}),
-              },
-            };
-          }
         }
       }
 
-      // Mask password in response
-      const responseSettings = JSON.parse(JSON.stringify(settings));
-      if (responseSettings.channels.email.smtp.auth.pass) {
-        responseSettings.channels.email.smtp.auth.pass = '••••••••';
-      }
+      // Check if Strapi email plugin is configured
+      const emailPluginConfigured = this.isEmailPluginConfigured();
+      settings.emailPluginConfigured = emailPluginConfigured;
 
-      return responseSettings;
+      return settings;
+    },
+
+    /**
+     * Check if Strapi's email plugin is configured
+     */
+    isEmailPluginConfigured() {
+      try {
+        // Check if email service exists and has send method
+        return !!(strapi.plugin('email')?.service('email')?.send);
+      } catch {
+        return false;
+      }
     },
 
     /**
@@ -142,23 +135,6 @@ module.exports = ({ strapi }) => {
             };
           }
         }
-
-        // Handle SMTP settings specially - don't overwrite password if masked
-        if (updates.channels.email?.smtp) {
-          const existingSmtp = storedData.channels?.email?.smtp || {};
-          newSettings.channels.email.smtp = {
-            ...existingSmtp,
-            ...updates.channels.email.smtp,
-            auth: {
-              ...(existingSmtp.auth || {}),
-              ...(updates.channels.email.smtp.auth || {}),
-            },
-          };
-          // Don't overwrite password if it's masked
-          if (updates.channels.email.smtp.auth?.pass === '••••••••') {
-            newSettings.channels.email.smtp.auth.pass = existingSmtp.auth?.pass || '';
-          }
-        }
       }
 
       // Validate email settings if enabled
@@ -166,15 +142,8 @@ module.exports = ({ strapi }) => {
         if (!newSettings.channels.email.recipients || newSettings.channels.email.recipients.length === 0) {
           throw new Error('Email channel enabled but no recipients configured');
         }
-        const smtp = newSettings.channels.email.smtp;
-        if (!smtp?.host) {
-          throw new Error('Email channel enabled but SMTP host not configured');
-        }
-        if (!smtp?.auth?.user) {
-          throw new Error('Email channel enabled but SMTP username not configured');
-        }
-        if (!smtp?.from) {
-          throw new Error('Email channel enabled but sender email (from) not configured');
+        if (!this.isEmailPluginConfigured()) {
+          throw new Error('Email channel enabled but Strapi email plugin is not configured. Please install and configure an email provider (e.g., @strapi/provider-email-sendgrid, @strapi/provider-email-nodemailer)');
         }
       }
 
@@ -185,45 +154,7 @@ module.exports = ({ strapi }) => {
 
       await store.set({ key: STORE_KEY, value: newSettings });
 
-      // Reset transporter so it gets recreated with new settings
-      emailTransporter = null;
-
-      // Return masked settings
-      const responseSettings = JSON.parse(JSON.stringify(newSettings));
-      if (responseSettings.channels?.email?.smtp?.auth?.pass) {
-        responseSettings.channels.email.smtp.auth.pass = '••••••••';
-      }
-
-      return responseSettings;
-    },
-
-    /**
-     * Get or create email transporter
-     */
-    async getEmailTransporter() {
-      if (emailTransporter) {
-        return emailTransporter;
-      }
-
-      const store = getStore();
-      const data = await store.get({ key: STORE_KEY });
-      const smtp = data?.channels?.email?.smtp;
-
-      if (!smtp?.host || !smtp?.auth?.user) {
-        throw new Error('SMTP not configured. Please configure email settings in Configuration > Alerts.');
-      }
-
-      emailTransporter = nodemailer.createTransport({
-        host: smtp.host,
-        port: smtp.port || 587,
-        secure: smtp.secure || false,
-        auth: {
-          user: smtp.auth.user,
-          pass: smtp.auth.pass,
-        },
-      });
-
-      return emailTransporter;
+      return newSettings;
     },
 
     /**
@@ -329,33 +260,40 @@ module.exports = ({ strapi }) => {
         details: data,
       });
 
-      // Note: Strapi v5 doesn't have built-in admin notifications API
-      // This could be extended with a custom notification system
       strapi.log.info(`[Sync Alert] ${eventType}: ${this.formatMessage(eventType, data)}`);
     },
 
     /**
-     * Send email notification using user-configured SMTP
+     * Send email notification using Strapi's email plugin
      */
     async sendEmailNotification(eventType, data, emailConfig) {
-      const transporter = await this.getEmailTransporter();
-      const store = getStore();
-      const settings = await store.get({ key: STORE_KEY });
-      const smtp = settings?.channels?.email?.smtp;
+      if (!this.isEmailPluginConfigured()) {
+        throw new Error('Strapi email plugin is not configured');
+      }
+
+      const emailService = strapi.plugin('email').service('email');
 
       const subject = eventType === 'sync_failure'
         ? `[Sync Alert] Sync Failed - ${data.profile || data.contentType}`
         : `[Sync Alert] Sync Completed - ${data.profile || data.contentType}`;
 
       const html = this.formatEmailBody(eventType, data);
+      const text = this.formatMessage(eventType, data);
 
       for (const recipient of emailConfig.recipients) {
-        await transporter.sendMail({
-          from: smtp.from,
+        const emailOptions = {
           to: recipient,
           subject,
           html,
-        });
+          text,
+        };
+
+        // Only set from if explicitly configured
+        if (emailConfig.from) {
+          emailOptions.from = emailConfig.from;
+        }
+
+        await emailService.send(emailOptions);
       }
     },
 
@@ -460,11 +398,11 @@ module.exports = ({ strapi }) => {
           return { success: true, message: 'Strapi notification sent - check sync logs' };
 
         case 'email':
+          if (!this.isEmailPluginConfigured()) {
+            throw new Error('Strapi email plugin is not configured. Install and configure an email provider first.');
+          }
           if (!settings.channels?.email?.recipients?.length) {
             throw new Error('No email recipients configured');
-          }
-          if (!settings.channels?.email?.smtp?.host) {
-            throw new Error('SMTP not configured');
           }
           await this.sendEmailNotification('sync_success', testData, settings.channels.email);
           return { success: true, message: `Test email sent to: ${settings.channels.email.recipients.join(', ')}` };
@@ -482,15 +420,6 @@ module.exports = ({ strapi }) => {
     },
 
     /**
-     * Verify SMTP connection
-     */
-    async verifySmtpConnection() {
-      const transporter = await this.getEmailTransporter();
-      await transporter.verify();
-      return { success: true, message: 'SMTP connection verified successfully' };
-    },
-
-    /**
      * Get alert history summary
      */
     getAlertStats() {
@@ -501,6 +430,7 @@ module.exports = ({ strapi }) => {
         alertsLastHour: recentAlerts.length,
         throttleLimit: 10,
         isThrottled: this.isThrottled(),
+        emailPluginConfigured: this.isEmailPluginConfigured(),
       };
     },
   };
