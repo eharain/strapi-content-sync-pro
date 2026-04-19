@@ -6,12 +6,16 @@ import { ConfigTab } from '../../components/ConfigTab';
 import { ContentTypesTab } from '../../components/ContentTypesTab';
 import { SyncTab } from '../../components/SyncTab';
 import { LogsTab } from '../../components/LogsTab';
+import { HelpTab } from '../../components/HelpTab';
+import { SyncProfilesTab } from '../../components/SyncProfilesTab';
 
 const TABS = [
   { key: 'config', label: 'Configuration' },
   { key: 'content-types', label: 'Content Types' },
+  { key: 'sync-profiles', label: 'Sync Profiles' },
   { key: 'sync', label: 'Sync' },
   { key: 'logs', label: 'Logs' },
+  { key: 'help', label: 'Help' },
 ];
 
 const HomePage = () => {
@@ -40,8 +44,10 @@ const HomePage = () => {
 
         {activeTab === 'config' && <ConfigTab />}
         {activeTab === 'content-types' && <ContentTypesTab />}
+        {activeTab === 'sync-profiles' && <SyncProfilesTab />}
         {activeTab === 'sync' && <SyncTab />}
         {activeTab === 'logs' && <LogsTab />}
+        {activeTab === 'help' && <HelpTab />}
 
         <Box paddingTop={8} borderColor="neutral200" borderStyle="solid" borderWidth="1px 0 0 0">
           <Box paddingTop={4}>
@@ -50,7 +56,7 @@ const HomePage = () => {
             </Typography>
             <Box paddingTop={2}>
               <Typography variant="pi" textColor="neutral500">
-                Contact:{' '}
+                Contact:{'Eja Arain'}
                 <Typography
                   variant="pi"
                   textColor="primary600"

@@ -27,12 +27,32 @@
     "admin/",
     "server/"
   ],
-  "scripts": {},
+  "scripts": {
+    "sync": "node D:/Rutba/ERP/pos-strapi/scripts/sync-data-sync-plugin.js",
+    "build": "strapi build",
+    "console": "strapi console",
+    "deploy": "strapi deploy",
+    "dev": "strapi develop",
+    "develop": "strapi develop",
+    "start": "strapi start",
+    "startjs": "node server.js",
+    "strapi": "strapi",
+    "upgrade": "npx @strapi/upgrade latest",
+    "upgrade:dry": "npx @strapi/upgrade latest --dry",
+    "plugin:sync": "node scripts/sync-data-sync-plugin.js",
+    "plugin:setup": "node scripts/setup-data-sync-plugin.js",
+    "plugin:setup:local": "node scripts/setup-data-sync-plugin.js --mode local",
+    "plugin:setup:package": "node scripts/setup-data-sync-plugin.js --mode package",
+    "postinstall": "node scripts/setup-data-sync-plugin.js --mode local"
+  },
   "peerDependencies": {
     "@strapi/strapi": "^5.0.0",
     "react": "^17.0.0 || ^18.0.0",
     "react-dom": "^17.0.0 || ^18.0.0",
     "react-router-dom": "^6.0.0"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.0"
   },
   "engines": {
     "node": ">=20.0.0",

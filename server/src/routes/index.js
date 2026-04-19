@@ -68,4 +68,226 @@ module.exports = [
     handler: 'syncLog.find',
     config: { policies: [] },
   },
+  // Sync Profiles — CRUD
+  {
+    method: 'GET',
+    path: '/sync-profiles',
+    handler: 'syncProfiles.find',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/sync-profiles/:id',
+    handler: 'syncProfiles.findOne',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/sync-profiles/content-type/:uid',
+    handler: 'syncProfiles.findByContentType',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/sync-profiles/content-type/:uid/active',
+    handler: 'syncProfiles.findActiveByContentType',
+    config: { policies: [] },
+  },
+  {
+    method: 'POST',
+    path: '/sync-profiles',
+    handler: 'syncProfiles.create',
+    config: { policies: [] },
+  },
+  {
+    method: 'POST',
+    path: '/sync-profiles/auto-generate',
+    handler: 'syncProfiles.autoGenerate',
+    config: { policies: [] },
+  },
+  {
+    method: 'POST',
+    path: '/sync-profiles/simple',
+    handler: 'syncProfiles.createSimple',
+    config: { policies: [] },
+  },
+  {
+    method: 'PUT',
+    path: '/sync-profiles/:id',
+    handler: 'syncProfiles.update',
+    config: { policies: [] },
+  },
+  {
+    method: 'DELETE',
+    path: '/sync-profiles/:id',
+    handler: 'syncProfiles.delete',
+    config: { policies: [] },
+  },
+  // Content Type Schema (for field discovery in profiles UI)
+  {
+    method: 'GET',
+    path: '/content-type-schema/:uid',
+    handler: 'syncProfiles.getContentTypeSchema',
+    config: { policies: [] },
+  },
+
+  // ============================================
+  // Sync Execution — Execution settings and triggers
+  // ============================================
+  {
+    method: 'GET',
+    path: '/sync-execution/settings',
+    handler: 'syncExecution.getSettings',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/sync-execution/settings/:profileId',
+    handler: 'syncExecution.getProfileSettings',
+    config: { policies: [] },
+  },
+  {
+    method: 'PUT',
+    path: '/sync-execution/settings/:profileId',
+    handler: 'syncExecution.updateProfileSettings',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/sync-execution/global-settings',
+    handler: 'syncExecution.getGlobalSettings',
+    config: { policies: [] },
+  },
+  {
+    method: 'PUT',
+    path: '/sync-execution/global-settings',
+    handler: 'syncExecution.updateGlobalSettings',
+    config: { policies: [] },
+  },
+  {
+    method: 'POST',
+    path: '/sync-execution/execute/:profileId',
+    handler: 'syncExecution.executeProfile',
+    config: { policies: [] },
+  },
+  {
+    method: 'POST',
+    path: '/sync-execution/execute-batch',
+    handler: 'syncExecution.executeProfiles',
+    config: { policies: [] },
+  },
+  {
+    method: 'POST',
+    path: '/sync-execution/execute-content-type/:uid',
+    handler: 'syncExecution.executeContentType',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/sync-execution/status',
+    handler: 'syncExecution.getStatus',
+    config: { policies: [] },
+  },
+
+  // ============================================
+  // Enforcement — Schema, version, and time sync checks
+  // ============================================
+  {
+    method: 'GET',
+    path: '/enforcement/settings',
+    handler: 'syncEnforcement.getSettings',
+    config: { policies: [] },
+  },
+  {
+    method: 'PUT',
+    path: '/enforcement/settings',
+    handler: 'syncEnforcement.updateSettings',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/enforcement/local-info',
+    handler: 'syncEnforcement.getLocalInfo',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/enforcement/schema/:uid',
+    handler: 'syncEnforcement.getLocalSchema',
+    config: { policies: [] },
+  },
+  {
+    method: 'POST',
+    path: '/enforcement/check',
+    handler: 'syncEnforcement.runChecks',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/enforcement/summary',
+    handler: 'syncEnforcement.getSummary',
+    config: { policies: [] },
+  },
+
+  // ============================================
+  // Alerts — Notification settings and testing
+  // ============================================
+  {
+    method: 'GET',
+    path: '/alerts/settings',
+    handler: 'alerts.getSettings',
+    config: { policies: [] },
+  },
+  {
+    method: 'PUT',
+    path: '/alerts/settings',
+    handler: 'alerts.updateSettings',
+    config: { policies: [] },
+  },
+  {
+    method: 'POST',
+    path: '/alerts/test/:channel',
+    handler: 'alerts.testChannel',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/alerts/stats',
+    handler: 'alerts.getStats',
+    config: { policies: [] },
+  },
+
+  // ============================================
+  // Dependencies — Dependency analysis for sync
+  // ============================================
+  {
+    method: 'GET',
+    path: '/dependencies/:uid',
+    handler: 'dependencies.analyze',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/dependencies/:uid/graph',
+    handler: 'dependencies.getGraph',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/dependencies/:uid/sync-order',
+    handler: 'dependencies.getSyncOrder',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/dependencies/:uid/summary',
+    handler: 'dependencies.getSummary',
+    config: { policies: [] },
+  },
+  {
+    method: 'POST',
+    path: '/dependencies/clear-cache',
+    handler: 'dependencies.clearCache',
+    config: { policies: [] },
+  },
 ];

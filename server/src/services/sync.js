@@ -31,11 +31,14 @@ module.exports = ({ strapi }) => {
     /**
      * Step 6 + 7 + 10 — Execute a manual / incremental sync for every
      * enabled content type.
+     * 
+     * Now supports field-level policies from Sync Profiles.
      */
     async syncNow() {
       const logService = plugin().service('syncLog');
       const configService = plugin().service('config');
       const syncConfigService = plugin().service('syncConfig');
+      const syncProfilesService = plugin().service('syncProfiles');
 
       const remoteConfig = await configService.getConfig({ safe: false });
       if (!remoteConfig || !remoteConfig.baseUrl) {
@@ -58,6 +61,9 @@ module.exports = ({ strapi }) => {
         const lastSyncAt = timestamps[uid] || null;
         const syncStartTime = new Date().toISOString();
 
+        // Get field-level policies from active profile (if any)
+        const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
+
         try {
           const localRecords = await fetchLocalRecords(strapi, uid, { fields, lastSyncAt });
           const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields, lastSyncAt });
@@ -71,29 +77,54 @@ module.exports = ({ strapi }) => {
           let pulled = 0;
           let errors = 0;
 
+          // Apply field policies to records before pushing/pulling
           for (const { local } of diff.toPush) {
-            try { await applyRemote(remoteConfig, uid, local, fields); pushed++; }
-            catch (err) { errors++; await logService.log({ action: 'push', contentType: uid, syncId: local.syncId, direction: 'push', status: 'error', message: err.message }); }
+            try {
+              const filteredRecord = syncProfilesService.filterFieldsByPolicy(local, fieldPolicies, 'push');
+              await applyRemote(remoteConfig, uid, filteredRecord, fields);
+              pushed++;
+            } catch (err) {
+              errors++;
+              await logService.log({ action: 'push', contentType: uid, syncId: local.syncId, direction: 'push', status: 'error', message: err.message });
+            }
           }
 
           for (const { remote } of diff.toPull) {
-            try { await applyLocal(strapi, uid, remote, fields); pulled++; }
-            catch (err) { errors++; await logService.log({ action: 'pull', contentType: uid, syncId: remote.syncId, direction: 'pull', status: 'error', message: err.message }); }
+            try {
+              const filteredRecord = syncProfilesService.filterFieldsByPolicy(remote, fieldPolicies, 'pull');
+              await applyLocal(strapi, uid, filteredRecord, fields);
+              pulled++;
+            } catch (err) {
+              errors++;
+              await logService.log({ action: 'pull', contentType: uid, syncId: remote.syncId, direction: 'pull', status: 'error', message: err.message });
+            }
           }
 
           for (const record of diff.toCreateRemote) {
-            try { await applyRemote(remoteConfig, uid, record, fields); pushed++; }
-            catch (err) { errors++; await logService.log({ action: 'create_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message }); }
+            try {
+              const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'push');
+              await applyRemote(remoteConfig, uid, filteredRecord, fields);
+              pushed++;
+            } catch (err) {
+              errors++;
+              await logService.log({ action: 'create_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
+            }
           }
 
           for (const record of diff.toCreateLocal) {
-            try { await applyLocal(strapi, uid, record, fields); pulled++; }
-            catch (err) { errors++; await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message }); }
+            try {
+              const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'pull');
+              await applyLocal(strapi, uid, filteredRecord, fields);
+              pulled++;
+            } catch (err) {
+              errors++;
+              await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
+            }
           }
 
           await setLastSyncTimestamp(uid, syncStartTime);
 
-          const summary = { uid, pushed, pulled, errors };
+          const summary = { uid, pushed, pulled, errors, hasFieldPolicies: !!fieldPolicies };
           results.push(summary);
 
           await logService.log({
@@ -101,7 +132,7 @@ module.exports = ({ strapi }) => {
             contentType: uid,
             direction,
             status: errors > 0 ? 'partial' : 'success',
-            message: `Pushed: ${pushed}, Pulled: ${pulled}, Errors: ${errors}`,
+            message: `Pushed: ${pushed}, Pulled: ${pulled}, Errors: ${errors}${fieldPolicies ? ' (with field policies)' : ''}`,
             details: summary,
           });
         } catch (err) {
@@ -121,10 +152,12 @@ module.exports = ({ strapi }) => {
 
     /**
      * Step 8 — Push a single record to the remote (called by lifecycle hooks).
+     * Now supports field-level policies.
      */
     async pushRecord(uid, record) {
       const configService = plugin().service('config');
       const logService = plugin().service('syncLog');
+      const syncProfilesService = plugin().service('syncProfiles');
 
       const remoteConfig = await configService.getConfig({ safe: false });
       if (!remoteConfig || !remoteConfig.baseUrl) return;
@@ -138,15 +171,19 @@ module.exports = ({ strapi }) => {
       if (!ctConfig) return;
       if (ctConfig.direction === 'pull') return;
 
+      // Get field-level policies from active profile (if any)
+      const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
+      const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'push');
+
       try {
-        await applyRemote(remoteConfig, uid, record, ctConfig.fields);
+        await applyRemote(remoteConfig, uid, filteredRecord, ctConfig.fields);
         await logService.log({
           action: 'event_push',
           contentType: uid,
           syncId: record.syncId,
           direction: 'push',
           status: 'success',
-          message: `Record ${record.syncId} pushed to remote`,
+          message: `Record ${record.syncId} pushed to remote${fieldPolicies ? ' (with field policies)' : ''}`,
         });
       } catch (err) {
         await logService.log({
@@ -162,12 +199,18 @@ module.exports = ({ strapi }) => {
 
     /**
      * Step 9 — Receive a record pushed from a remote instance.
+     * Now supports field-level policies.
      */
     async receiveRecord(uid, data, syncId) {
       const logService = plugin().service('syncLog');
+      const syncProfilesService = plugin().service('syncProfiles');
+
+      // Get field-level policies from active profile (if any)
+      const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
+      const filteredData = syncProfilesService.filterFieldsByPolicy(data, fieldPolicies, 'pull');
 
       try {
-        await applyLocal(strapi, uid, { ...data, syncId }, []);
+        await applyLocal(strapi, uid, { ...filteredData, syncId }, []);
 
         await logService.log({
           action: 'receive',
@@ -175,7 +218,7 @@ module.exports = ({ strapi }) => {
           syncId,
           direction: 'pull',
           status: 'success',
-          message: `Record ${syncId} received from remote`,
+          message: `Record ${syncId} received from remote${fieldPolicies ? ' (with field policies)' : ''}`,
         });
 
         return { success: true };

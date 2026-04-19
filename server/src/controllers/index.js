@@ -6,6 +6,11 @@ const contentTypeDiscovery = require('./content-type-discovery');
 const syncConfig = require('./sync-config');
 const sync = require('./sync');
 const syncLog = require('./sync-log');
+const syncProfiles = require('./sync-profiles');
+const syncExecution = require('./sync-execution');
+const syncEnforcement = require('./sync-enforcement');
+const alerts = require('./alerts');
+const dependencies = require('./dependencies');
 
 module.exports = {
   ping,
@@ -14,4 +19,9 @@ module.exports = {
   syncConfig,
   sync,
   syncLog,
+  syncProfiles,
+  syncExecution,
+  syncEnforcement,
+  alerts,
+  dependencies,
 };
