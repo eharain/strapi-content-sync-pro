@@ -4,18 +4,20 @@ const STORE_KEY = 'sync-execution-settings';
 
 /**
  * Sync Execution Service
- * 
+ *
  * Manages WHEN and HOW sync profiles are executed:
  * - On-demand (manual trigger)
- * - Scheduled (cron-based intervals)
+ * - Scheduled (interval / timeout / cron / external)
  * - Live (real-time via lifecycle hooks)
- * 
+ *
  * Execution Settings Structure:
  * {
  *   profiles: {
  *     [profileId]: {
  *       executionMode: 'on_demand' | 'scheduled' | 'live',
- *       scheduleInterval: number (minutes),
+ *       scheduleType: 'interval' | 'timeout' | 'cron' | 'external',
+ *       scheduleInterval: number (minutes, used by interval/timeout),
+ *       cronExpression: string (used by cron),
  *       lastExecutedAt: ISO string,
  *       nextExecutionAt: ISO string,
  *       enabled: boolean,
@@ -30,6 +32,26 @@ const STORE_KEY = 'sync-execution-settings';
  *     retryDelayMs: number
  *   }
  * }
+ *
+ * Scheduler Types
+ * ---------------
+ * - interval : Node setInterval. Lightweight, fires every N minutes from when it
+ *              was started. Drifts slightly. Misses runs if the process is
+ *              blocked. Best for small / frequent syncs.
+ * - timeout  : Chained setTimeout. Re-computes its next run only after the
+ *              previous run completes, so overlapping runs are impossible. Best
+ *              when individual syncs can take a long time.
+ * - cron     : Uses Strapi's built-in cron (node-schedule). Supports full cron
+ *              expressions (e.g. "0 */2 * * *"). Persists the next-run wall-
+ *              clock time and survives short pauses reliably. Recommended for
+ *              larger datasets and production systems.
+ * - external : The plugin registers NO in-process schedule. Instead, an
+ *              external scheduler (systemd timer, Windows Task Scheduler,
+ *              Kubernetes CronJob, GitHub Actions, cloud scheduler, ...) must
+ *              POST /api/strapi-to-strapi-data-sync/sync-execution/execute/:id
+ *              to drive the run. Recommended for large datasets, multi-node
+ *              deployments, and HA setups where you can't rely on a single
+ *              Node process staying up.
  */
 module.exports = ({ strapi }) => {
   function getStore() {
@@ -48,10 +70,43 @@ module.exports = ({ strapi }) => {
   };
 
   const VALID_EXECUTION_MODES = ['on_demand', 'scheduled', 'live'];
+  const VALID_SCHEDULE_TYPES = ['interval', 'timeout', 'cron', 'external'];
 
-  // In-memory scheduler state
-  let schedulerIntervals = {};
+  // Basic cron validator: 5 or 6 space-separated fields
+  function isValidCronExpression(expr) {
+    if (typeof expr !== 'string') return false;
+    const parts = expr.trim().split(/\s+/);
+    if (parts.length < 5 || parts.length > 6) return false;
+    // very loose validator — detailed validation is done by node-schedule
+    return parts.every((p) => /^[\d\*\/,\-\?LW#A-Za-z]+$/.test(p));
+  }
+
+  // In-memory scheduler state per profile
+  //   { intervalId?, timeoutId?, cronKey? }
+  const schedulerHandles = {};
   let liveHooksRegistered = false;
+
+  // -- scheduler helpers -----------------------------------------------------
+
+  function clearHandles(profileId) {
+    const h = schedulerHandles[profileId];
+    if (!h) return;
+    if (h.intervalId) clearInterval(h.intervalId);
+    if (h.timeoutId) clearTimeout(h.timeoutId);
+    if (h.cronKey && strapi.cron && typeof strapi.cron.remove === 'function') {
+      try { strapi.cron.remove(h.cronKey); } catch (_) { /* ignore */ }
+    }
+    delete schedulerHandles[profileId];
+  }
+
+  async function runSafely(profileId, runner) {
+    try {
+      await runner();
+    } catch (error) {
+      strapi.log.error(`[data-sync] Scheduled run failed for profile ${profileId}: ${error.message}`);
+    }
+  }
+
 
   return {
     /**
@@ -70,7 +125,9 @@ module.exports = ({ strapi }) => {
       const settings = await this.getExecutionSettings();
       return settings.profiles[profileId] || {
         executionMode: 'on_demand',
+        scheduleType: 'interval',
         scheduleInterval: 60,
+        cronExpression: '0 * * * *',
         lastExecutedAt: null,
         nextExecutionAt: null,
         enabled: false,
@@ -91,10 +148,22 @@ module.exports = ({ strapi }) => {
         throw new Error(`Invalid execution mode "${executionSettings.executionMode}"`);
       }
 
-      // Validate schedule interval
+      // Validate schedule type
+      if (executionSettings.scheduleType && !VALID_SCHEDULE_TYPES.includes(executionSettings.scheduleType)) {
+        throw new Error(`Invalid schedule type "${executionSettings.scheduleType}". Must be one of: ${VALID_SCHEDULE_TYPES.join(', ')}`);
+      }
+
+      // Validate schedule interval (used by interval & timeout types)
       if (executionSettings.scheduleInterval !== undefined) {
         if (executionSettings.scheduleInterval < 1 || executionSettings.scheduleInterval > 1440) {
           throw new Error('Schedule interval must be between 1 and 1440 minutes');
+        }
+      }
+
+      // Validate cron expression when provided
+      if (executionSettings.cronExpression !== undefined && executionSettings.cronExpression !== null && executionSettings.cronExpression !== '') {
+        if (!isValidCronExpression(executionSettings.cronExpression)) {
+          throw new Error('Invalid cron expression. Expected 5 or 6 space-separated fields (e.g. "0 */2 * * *")');
         }
       }
 
@@ -106,16 +175,26 @@ module.exports = ({ strapi }) => {
       }
 
       const current = settings.profiles[profileId] || {};
-      settings.profiles[profileId] = {
+      const merged = {
+        scheduleType: 'interval',
+        scheduleInterval: 60,
         ...current,
         ...executionSettings,
         updatedAt: new Date().toISOString(),
       };
+      settings.profiles[profileId] = merged;
 
-      // Calculate next execution time for scheduled mode
-      if (settings.profiles[profileId].executionMode === 'scheduled' && settings.profiles[profileId].enabled) {
-        const intervalMs = settings.profiles[profileId].scheduleInterval * 60 * 1000;
-        settings.profiles[profileId].nextExecutionAt = new Date(Date.now() + intervalMs).toISOString();
+      // Calculate an advisory nextExecutionAt for scheduled mode
+      if (merged.executionMode === 'scheduled' && merged.enabled) {
+        if (merged.scheduleType === 'interval' || merged.scheduleType === 'timeout') {
+          const intervalMs = (merged.scheduleInterval || 60) * 60 * 1000;
+          merged.nextExecutionAt = new Date(Date.now() + intervalMs).toISOString();
+        } else if (merged.scheduleType === 'external') {
+          merged.nextExecutionAt = null;
+        }
+        // cron: leave nextExecutionAt as-is; node-schedule owns the timing
+      } else {
+        merged.nextExecutionAt = null;
       }
 
       await store.set({ key: STORE_KEY, value: settings });
@@ -272,12 +351,18 @@ module.exports = ({ strapi }) => {
       const settings = await this.getExecutionSettings();
 
       if (settings.profiles[profileId]) {
-        settings.profiles[profileId].lastExecutedAt = new Date().toISOString();
+        const prof = settings.profiles[profileId];
+        prof.lastExecutedAt = new Date().toISOString();
 
-        // Calculate next execution for scheduled mode
-        if (settings.profiles[profileId].executionMode === 'scheduled' && settings.profiles[profileId].enabled) {
-          const intervalMs = settings.profiles[profileId].scheduleInterval * 60 * 1000;
-          settings.profiles[profileId].nextExecutionAt = new Date(Date.now() + intervalMs).toISOString();
+        // Only refresh nextExecutionAt for interval/timeout schedules; cron/external
+        // advance their own next run externally.
+        if (
+          prof.executionMode === 'scheduled' &&
+          prof.enabled &&
+          (prof.scheduleType === 'interval' || prof.scheduleType === 'timeout' || !prof.scheduleType)
+        ) {
+          const intervalMs = (prof.scheduleInterval || 60) * 60 * 1000;
+          prof.nextExecutionAt = new Date(Date.now() + intervalMs).toISOString();
         }
 
         await store.set({ key: STORE_KEY, value: settings });
@@ -285,32 +370,100 @@ module.exports = ({ strapi }) => {
     },
 
     /**
-     * Update scheduler for a profile (start/stop scheduled execution)
+     * Update scheduler for a profile (start/stop scheduled execution).
+     * Dispatches to one of four scheduler types based on executionSettings.scheduleType.
      */
     async updateScheduler(profileId, executionSettings) {
-      // Clear existing interval if any
-      if (schedulerIntervals[profileId]) {
-        clearInterval(schedulerIntervals[profileId]);
-        delete schedulerIntervals[profileId];
+      // Always clear any existing handles for this profile
+      clearHandles(profileId);
+
+      if (!(executionSettings.executionMode === 'scheduled' && executionSettings.enabled)) {
+        // Still handle live mode registration
+        if (executionSettings.executionMode === 'live' && executionSettings.enabled) {
+          await this.registerLiveHooks();
+        }
+        return;
       }
 
-      // Start new interval if scheduled and enabled
-      if (executionSettings.executionMode === 'scheduled' && executionSettings.enabled) {
-        const intervalMs = executionSettings.scheduleInterval * 60 * 1000;
-        schedulerIntervals[profileId] = setInterval(async () => {
-          try {
-            await this.executeProfile(profileId);
-          } catch (error) {
-            strapi.log.error(`Scheduled sync failed for profile ${profileId}: ${error.message}`);
+      const scheduleType = executionSettings.scheduleType || 'interval';
+      const intervalMinutes = executionSettings.scheduleInterval || 60;
+      const intervalMs = intervalMinutes * 60 * 1000;
+      const self = this;
+
+      switch (scheduleType) {
+        case 'interval': {
+          const id = setInterval(() => {
+            runSafely(profileId, () => self.executeProfile(profileId));
+          }, intervalMs);
+          schedulerHandles[profileId] = { intervalId: id };
+          strapi.log.info(`[data-sync] interval scheduler enabled for profile ${profileId}: every ${intervalMinutes} min`);
+          break;
+        }
+
+        case 'timeout': {
+          // Chained timeout: schedule next run only AFTER previous completes.
+          // Prevents overlap for long-running syncs.
+          const scheduleNext = () => {
+            const tid = setTimeout(async () => {
+              await runSafely(profileId, () => self.executeProfile(profileId));
+              // Re-schedule only if this profile is still active and in timeout mode
+              const latest = await self.getProfileExecutionSettings(profileId);
+              if (
+                latest.executionMode === 'scheduled' &&
+                latest.enabled &&
+                latest.scheduleType === 'timeout' &&
+                schedulerHandles[profileId] // not cleared in between
+              ) {
+                scheduleNext();
+              }
+            }, intervalMs);
+            schedulerHandles[profileId] = { timeoutId: tid };
+          };
+          scheduleNext();
+          strapi.log.info(`[data-sync] timeout (chained) scheduler enabled for profile ${profileId}: ~${intervalMinutes} min between runs`);
+          break;
+        }
+
+        case 'cron': {
+          const expr = executionSettings.cronExpression;
+          if (!expr || !isValidCronExpression(expr)) {
+            strapi.log.error(`[data-sync] Cron scheduler NOT started for profile ${profileId}: invalid or missing cronExpression`);
+            return;
           }
-        }, intervalMs);
+          if (!strapi.cron || typeof strapi.cron.add !== 'function') {
+            strapi.log.error(`[data-sync] strapi.cron is not available; cannot start cron scheduler for profile ${profileId}`);
+            return;
+          }
+          const cronKey = `data-sync:profile:${profileId}`;
+          try {
+            strapi.cron.add({
+              [cronKey]: {
+                task: async () => {
+                  await runSafely(profileId, () => self.executeProfile(profileId));
+                },
+                options: { rule: expr },
+              },
+            });
+            schedulerHandles[profileId] = { cronKey };
+            strapi.log.info(`[data-sync] cron scheduler enabled for profile ${profileId}: "${expr}"`);
+          } catch (err) {
+            strapi.log.error(`[data-sync] Failed to register cron for profile ${profileId}: ${err.message}`);
+          }
+          break;
+        }
 
-        strapi.log.info(`Scheduled sync enabled for profile ${profileId}: every ${executionSettings.scheduleInterval} minutes`);
-      }
+        case 'external': {
+          // No in-process scheduler. The user will invoke the execute endpoint
+          // from an external scheduler (systemd, Windows Task Scheduler, k8s,
+          // cloud scheduler, CI, etc.). Mark the handles so getExecutionStatus
+          // can report this distinctly.
+          schedulerHandles[profileId] = { external: true };
+          strapi.log.info(`[data-sync] external scheduler selected for profile ${profileId}: no in-process timer will run`);
+          break;
+        }
 
-      // Handle live mode
-      if (executionSettings.executionMode === 'live' && executionSettings.enabled) {
-        await this.registerLiveHooks();
+        default:
+          strapi.log.warn(`[data-sync] Unknown scheduleType "${scheduleType}" for profile ${profileId}`);
       }
     },
 
@@ -333,7 +486,10 @@ module.exports = ({ strapi }) => {
       const settings = await this.getExecutionSettings();
 
       for (const [profileId, execSettings] of Object.entries(settings.profiles)) {
-        if (execSettings.executionMode === 'scheduled' && execSettings.enabled) {
+        if (
+          (execSettings.executionMode === 'scheduled' && execSettings.enabled) ||
+          (execSettings.executionMode === 'live' && execSettings.enabled)
+        ) {
           await this.updateScheduler(profileId, execSettings);
         }
       }
@@ -343,10 +499,9 @@ module.exports = ({ strapi }) => {
      * Stop all schedulers (for shutdown)
      */
     stopAllSchedulers() {
-      for (const intervalId of Object.values(schedulerIntervals)) {
-        clearInterval(intervalId);
+      for (const profileId of Object.keys(schedulerHandles)) {
+        clearHandles(profileId);
       }
-      schedulerIntervals = {};
     },
 
     /**
@@ -360,15 +515,20 @@ module.exports = ({ strapi }) => {
       const status = [];
       for (const profile of profiles) {
         const execSettings = settings.profiles[profile.id] || {};
+        const handle = schedulerHandles[profile.id];
         status.push({
           profileId: profile.id,
           profileName: profile.name,
           contentType: profile.contentType,
           executionMode: execSettings.executionMode || 'on_demand',
+          scheduleType: execSettings.scheduleType || null,
+          scheduleInterval: execSettings.scheduleInterval || null,
+          cronExpression: execSettings.cronExpression || null,
           enabled: execSettings.enabled || false,
           lastExecutedAt: execSettings.lastExecutedAt || null,
           nextExecutionAt: execSettings.nextExecutionAt || null,
-          isSchedulerRunning: !!schedulerIntervals[profile.id],
+          isSchedulerRunning: !!handle && !handle.external,
+          isExternal: !!(handle && handle.external),
         });
       }
 

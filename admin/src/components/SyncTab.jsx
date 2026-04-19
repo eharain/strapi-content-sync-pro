@@ -67,7 +67,9 @@ const SyncTab = () => {
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [executionSettings, setExecutionSettings] = useState({
     executionMode: 'on_demand',
+    scheduleType: 'interval',
     scheduleInterval: 60,
+    cronExpression: '0 * * * *',
     enabled: false,
     syncDependencies: false,
     dependencyDepth: 1,
@@ -325,7 +327,9 @@ const SyncTab = () => {
       const res = await get(`/${PLUGIN_ID}/sync-execution/settings/${profileId}`);
       setExecutionSettings(res.data.data || {
         executionMode: 'on_demand',
+        scheduleType: 'interval',
         scheduleInterval: 60,
+        cronExpression: '0 * * * *',
         enabled: false,
         syncDependencies: false,
         dependencyDepth: 1,
@@ -861,6 +865,32 @@ const SyncTab = () => {
               {executionSettings.executionMode === 'scheduled' && (
                 <Box paddingBottom={4}>
                   <Field.Root>
+                    <Field.Label>Schedule Type</Field.Label>
+                    <SingleSelect
+                      value={executionSettings.scheduleType || 'interval'}
+                      onChange={(value) => setExecutionSettings((p) => ({ ...p, scheduleType: value }))}
+                    >
+                      <SingleSelectOption value="interval">Interval (setInterval)</SingleSelectOption>
+                      <SingleSelectOption value="timeout">Timeout (chained, no overlap)</SingleSelectOption>
+                      <SingleSelectOption value="cron">Cron (wall-clock)</SingleSelectOption>
+                      <SingleSelectOption value="external">External scheduler</SingleSelectOption>
+                    </SingleSelect>
+                    <Field.Hint>
+                      {(!executionSettings.scheduleType || executionSettings.scheduleType === 'interval') && 'Fires every N minutes via setInterval. Light and simple; may overlap if a run is slow.'}
+                      {executionSettings.scheduleType === 'timeout' && 'Chained setTimeout: waits for each run to finish before scheduling the next. Best for long-running syncs.'}
+                      {executionSettings.scheduleType === 'cron' && 'Uses Strapi\'s built-in cron. Recommended for production and larger datasets.'}
+                      {executionSettings.scheduleType === 'external' && 'No in-process timer. Trigger the execute endpoint from an external scheduler (cron, Task Scheduler, K8s CronJob, etc.). See the Help tab.'}
+                    </Field.Hint>
+                  </Field.Root>
+                </Box>
+              )}
+
+              {executionSettings.executionMode === 'scheduled' &&
+                (executionSettings.scheduleType === 'interval' ||
+                  executionSettings.scheduleType === 'timeout' ||
+                  !executionSettings.scheduleType) && (
+                <Box paddingBottom={4}>
+                  <Field.Root>
                     <Field.Label>Schedule Interval (minutes)</Field.Label>
                     <NumberInput
                       value={executionSettings.scheduleInterval}
@@ -870,6 +900,32 @@ const SyncTab = () => {
                     />
                     <Field.Hint>How often to run the sync (1-1440 minutes)</Field.Hint>
                   </Field.Root>
+                </Box>
+              )}
+
+              {executionSettings.executionMode === 'scheduled' && executionSettings.scheduleType === 'cron' && (
+                <Box paddingBottom={4}>
+                  <Field.Root>
+                    <Field.Label>Cron Expression</Field.Label>
+                    <TextInput
+                      value={executionSettings.cronExpression || ''}
+                      onChange={(e) => setExecutionSettings((p) => ({ ...p, cronExpression: e.target.value }))}
+                      placeholder="0 */2 * * *"
+                    />
+                    <Field.Hint>
+                      Standard 5- or 6-field cron. Examples: "0 * * * *" (hourly), "*/15 * * * *" (every 15 min), "0 2 * * *" (daily at 02:00).
+                    </Field.Hint>
+                  </Field.Root>
+                </Box>
+              )}
+
+              {executionSettings.executionMode === 'scheduled' && executionSettings.scheduleType === 'external' && (
+                <Box paddingBottom={4}>
+                  <Typography variant="pi" textColor="neutral600">
+                    External mode: the plugin will NOT run an in-process timer. Your external scheduler must POST to
+                    {' '}<code>/api/strapi-to-strapi-data-sync/sync-execution/execute/&lt;profileId&gt;</code>{' '}
+                    with a valid API token. See the Help tab for concrete examples (cron, Windows Task Scheduler, systemd, Kubernetes CronJob, GitHub Actions).
+                  </Typography>
                 </Box>
               )}
 

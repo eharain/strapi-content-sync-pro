@@ -367,11 +367,95 @@ http://localhost:1337</CodeBlock>
               <Box background="neutral100" padding={4} hasRadius marginBottom={4}>
                 <Typography variant="sigma" textColor="neutral800">Scheduled</Typography>
                 <Typography variant="omega" paddingTop={1}>
-                  Sync runs automatically at regular intervals (e.g., every 60 minutes).
-                  Configure the interval in minutes (1-1440).
+                  Sync runs automatically on a schedule. You can pick one of four{' '}
+                  <strong>schedule types</strong>, each with different reliability tradeoffs:
                 </Typography>
+                <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                  <li><Typography variant="omega"><strong>Interval (setInterval)</strong> — Fires every N minutes. Simple and lightweight. Can overlap if a run takes longer than the interval, and drifts slightly over time. Good for small, frequent syncs.</Typography></li>
+                  <li><Typography variant="omega"><strong>Timeout (chained setTimeout)</strong> — Waits for the previous run to finish before scheduling the next. Cannot overlap. Recommended when individual syncs can take a long time.</Typography></li>
+                  <li><Typography variant="omega"><strong>Cron (wall-clock)</strong> — Uses Strapi's built-in <code>strapi.cron</code> (node-schedule) with a standard cron expression (e.g. <code>0 */2 * * *</code>). Recommended for production and larger datasets because runs are tied to wall-clock time rather than process uptime.</Typography></li>
+                  <li><Typography variant="omega"><strong>External scheduler</strong> — The plugin runs <em>no</em> in-process timer. An external system (system cron, Windows Task Scheduler, Kubernetes CronJob, cloud scheduler, CI) calls the execute endpoint on a schedule. Most reliable for very large datasets or multi-node / HA deployments where you cannot rely on a single Node process.</Typography></li>
+                </ul>
                 <Typography variant="pi" textColor="neutral600" paddingTop={2}>
-                  Best for: Regular updates without real-time requirements
+                  Tip: If your sync regularly takes longer than a few minutes or must survive restarts predictably, prefer <strong>Cron</strong> or <strong>External</strong> over Interval/Timeout.
+                </Typography>
+              </Box>
+
+              <Box background="neutral100" padding={4} hasRadius marginBottom={4}>
+                <Typography variant="sigma" textColor="neutral800">External Scheduled Jobs (how-to)</Typography>
+                <Typography variant="omega" paddingTop={1}>
+                  Select schedule type <strong>External</strong> on a profile, then configure any scheduler you already trust to POST to the execute endpoint:
+                </Typography>
+                <Box background="neutral0" padding={3} hasRadius marginTop={2} marginBottom={2}>
+                  <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
+                    POST {'{BASE_URL}'}/api/strapi-to-strapi-data-sync/sync-execution/execute/{'{profileId}'}<br />
+                    Authorization: Bearer {'{STRAPI_API_TOKEN}'}<br />
+                    Content-Type: application/json
+                  </Typography>
+                </Box>
+                <Typography variant="omega" paddingTop={1}><strong>Linux cron</strong> (every hour):</Typography>
+                <Box background="neutral0" padding={3} hasRadius marginTop={1} marginBottom={2}>
+                  <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
+                    0 * * * * curl -fsS -X POST -H "Authorization: Bearer $TOKEN" https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID
+                  </Typography>
+                </Box>
+                <Typography variant="omega" paddingTop={1}><strong>Windows Task Scheduler</strong> (PowerShell):</Typography>
+                <Box background="neutral0" padding={3} hasRadius marginTop={1} marginBottom={2}>
+                  <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
+                    $a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-Command "Invoke-RestMethod -Method Post -Uri https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID -Headers @{Authorization=''Bearer ''+$env:SYNC_TOKEN}"'<br />
+                    $t = New-ScheduledTaskTrigger -Daily -At 2am<br />
+                    Register-ScheduledTask -TaskName "StrapiDataSync" -Action $a -Trigger $t
+                  </Typography>
+                </Box>
+                <Typography variant="omega" paddingTop={1}><strong>systemd timer</strong> (unit + timer):</Typography>
+                <Box background="neutral0" padding={3} hasRadius marginTop={1} marginBottom={2}>
+                  <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
+                    # /etc/systemd/system/strapi-sync.service<br />
+                    [Service]<br />
+                    Type=oneshot<br />
+                    ExecStart=/usr/bin/curl -fsS -X POST -H "Authorization: Bearer %i" https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID<br /><br />
+                    # /etc/systemd/system/strapi-sync.timer<br />
+                    [Timer]<br />
+                    OnCalendar=hourly<br />
+                    Unit=strapi-sync.service<br />
+                    [Install]<br />
+                    WantedBy=timers.target
+                  </Typography>
+                </Box>
+                <Typography variant="omega" paddingTop={1}><strong>Kubernetes CronJob</strong>:</Typography>
+                <Box background="neutral0" padding={3} hasRadius marginTop={1} marginBottom={2}>
+                  <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
+                    apiVersion: batch/v1<br />
+                    kind: CronJob<br />
+                    metadata: {'{'} name: strapi-data-sync {'}'}<br />
+                    spec:<br />
+                    &nbsp;&nbsp;schedule: "0 * * * *"<br />
+                    &nbsp;&nbsp;jobTemplate:<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;spec:<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;template:<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;spec:<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;restartPolicy: OnFailure<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;containers:<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- name: sync<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;image: curlimages/curl:latest<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;args: ["-fsS","-X","POST","-H","Authorization: Bearer $(TOKEN)","https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID"]
+                  </Typography>
+                </Box>
+                <Typography variant="omega" paddingTop={1}><strong>GitHub Actions</strong> (scheduled workflow):</Typography>
+                <Box background="neutral0" padding={3} hasRadius marginTop={1} marginBottom={2}>
+                  <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
+                    on:<br />
+                    &nbsp;&nbsp;schedule:<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;- cron: "0 * * * *"<br />
+                    jobs:<br />
+                    &nbsp;&nbsp;sync:<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;runs-on: ubuntu-latest<br />
+                    &nbsp;&nbsp;&nbsp;&nbsp;steps:<br />
+                    {'      - run: curl -fsS -X POST -H "Authorization: Bearer ${{ secrets.SYNC_TOKEN }}" https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID'}
+                  </Typography>
+                </Box>
+                <Typography variant="pi" textColor="neutral600" paddingTop={2}>
+                  The API token must have permission to access the plugin's content-api routes. Generate it in Strapi under <strong>Settings → API Tokens</strong>, or via the Connection tab's "Login &amp; Create Token" helper.
                 </Typography>
               </Box>
 
