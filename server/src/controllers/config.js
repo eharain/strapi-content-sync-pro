@@ -10,6 +10,120 @@ module.exports = {
     ctx.body = { data: config };
   },
 
+  /**
+   * GET /config/test
+   * Test connectivity to the remote server using stored credentials
+   */
+  async test(ctx) {
+    const configService = strapi.plugin(PLUGIN_ID).service('config');
+    const config = await configService.getConfig({ safe: false });
+
+    if (!config || !config.baseUrl) {
+      return ctx.body = {
+        data: {
+          success: false,
+          stage: 'config',
+          message: 'Remote server URL is not configured',
+        },
+      };
+    }
+
+    if (!config.apiToken) {
+      return ctx.body = {
+        data: {
+          success: false,
+          stage: 'config',
+          message: 'API token is not configured',
+        },
+      };
+    }
+
+    // Step 1: Basic reachability via public ping endpoint
+    const startTime = Date.now();
+    let pingStatus = null;
+    try {
+      const pingRes = await fetch(`${config.baseUrl}/api/${PLUGIN_ID}/ping`, {
+        method: 'GET',
+      });
+      pingStatus = pingRes.status;
+      if (!pingRes.ok) {
+        return ctx.body = {
+          data: {
+            success: false,
+            stage: 'ping',
+            message: `Remote server returned ${pingRes.status} on /ping. The plugin may not be installed on the remote server.`,
+            latency: Date.now() - startTime,
+          },
+        };
+      }
+    } catch (err) {
+      return ctx.body = {
+        data: {
+          success: false,
+          stage: 'network',
+          message: `Cannot reach remote server: ${err.message}`,
+          latency: Date.now() - startTime,
+        },
+      };
+    }
+
+    const pingLatency = Date.now() - startTime;
+
+    // Step 2: Verify API token works against an authenticated endpoint
+    let authWorks = false;
+    let remoteInfo = null;
+    try {
+      const infoRes = await fetch(`${config.baseUrl}/api/${PLUGIN_ID}/enforcement/local-info`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${config.apiToken}` },
+      });
+      if (infoRes.ok) {
+        authWorks = true;
+        const body = await infoRes.json().catch(() => ({}));
+        remoteInfo = body?.data || null;
+      } else if (infoRes.status === 401 || infoRes.status === 403) {
+        return ctx.body = {
+          data: {
+            success: false,
+            stage: 'auth',
+            message: `API token rejected by remote server (${infoRes.status}). Verify the token is valid and has Full Access.`,
+            latency: pingLatency,
+          },
+        };
+      } else if (infoRes.status === 404) {
+        return ctx.body = {
+          data: {
+            success: false,
+            stage: 'plugin',
+            message: 'Remote server reachable but /enforcement/local-info not found. Ensure the plugin is installed and updated on the remote server.',
+            latency: pingLatency,
+          },
+        };
+      }
+    } catch (err) {
+      return ctx.body = {
+        data: {
+          success: false,
+          stage: 'auth',
+          message: `Error validating API token: ${err.message}`,
+          latency: pingLatency,
+        },
+      };
+    }
+
+    ctx.body = {
+      data: {
+        success: true,
+        stage: 'complete',
+        message: authWorks
+          ? 'Connection successful and API token validated'
+          : 'Reachable but API token could not be validated',
+        latency: pingLatency,
+        remoteInfo,
+      },
+    };
+  },
+
   async set(ctx) {
     const { body } = ctx.request;
 

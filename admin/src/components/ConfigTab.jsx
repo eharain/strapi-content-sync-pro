@@ -184,26 +184,16 @@ const ConfigTab = () => {
   const handleTestConnection = async () => {
     setConnectionTest({ testing: true, result: null });
     try {
-      const startTime = Date.now();
-      const response = await get(`/${PLUGIN_ID}/ping`);
-      const latency = Date.now() - startTime;
-
-      // Also try to get remote info
-      let remoteInfo = null;
-      try {
-        const infoRes = await get(`/${PLUGIN_ID}/enforcement/remote-info`);
-        remoteInfo = infoRes.data.data;
-      } catch (e) {
-        // Remote info not available
-      }
-
+      const response = await get(`/${PLUGIN_ID}/config/test`);
+      const data = response.data.data;
       setConnectionTest({
         testing: false,
         result: {
-          success: true,
-          latency,
-          message: 'Connection successful',
-          remoteInfo,
+          success: data.success,
+          latency: data.latency,
+          message: data.message,
+          stage: data.stage,
+          remoteInfo: data.remoteInfo,
           timestamp: new Date().toISOString(),
         },
       });
@@ -434,11 +424,22 @@ const ConfigTab = () => {
                     variant={connectionTest.result.success ? 'success' : 'danger'}
                     closeLabel="Close"
                     onClose={() => setConnectionTest({ testing: false, result: null })}
+                    title={connectionTest.result.success ? 'Connection OK' : `Failed at: ${connectionTest.result.stage || 'unknown'}`}
                   >
-                    {connectionTest.result.success 
-                      ? `Connected successfully (${connectionTest.result.latency}ms)`
-                      : connectionTest.result.error || 'Connection failed'
-                    }
+                    <Box>
+                      <Typography variant="omega">
+                        {connectionTest.result.message}
+                        {connectionTest.result.latency != null && ` (${connectionTest.result.latency}ms)`}
+                      </Typography>
+                      {connectionTest.result.remoteInfo && (
+                        <Box paddingTop={2}>
+                          <Typography variant="pi" textColor="neutral600">
+                            Remote Strapi: {connectionTest.result.remoteInfo.strapiVersion || 'unknown'} • 
+                            Server time: {connectionTest.result.remoteInfo.serverTime || 'unknown'}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
                   </Alert>
                 </Box>
               )}

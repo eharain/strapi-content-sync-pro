@@ -187,9 +187,24 @@ module.exports = ({ strapi }) => ({
         }
 
         case 'schema': {
-          const syncConfig = await syncConfigService.get();
-          const enabledTypes = syncConfig.enabledContentTypes || [];
+          const syncConfig = await syncConfigService.getSyncConfig();
+          const enabledTypes = (syncConfig.contentTypes || [])
+            .filter((ct) => ct.enabled !== false)
+            .map((ct) => ct.uid);
           const mismatches = [];
+
+          if (enabledTypes.length === 0) {
+            result = {
+              passed: true,
+              details: {
+                checkedTypes: [],
+                mismatches: [],
+                matchMode: settings.schemaMatchMode,
+                message: 'No content types enabled for sync',
+              },
+            };
+            break;
+          }
 
           for (const uid of enabledTypes) {
             try {
