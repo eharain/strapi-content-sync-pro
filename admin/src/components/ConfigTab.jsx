@@ -44,6 +44,7 @@ const ConfigTab = () => {
   // Alert settings
   const [alerts, setAlerts] = useState({
     enabled: true,
+    emailPluginConfigured: false,
     channels: {
       strapiNotification: { enabled: true, onSuccess: false, onFailure: true },
       email: {
@@ -51,13 +52,7 @@ const ConfigTab = () => {
         onSuccess: false,
         onFailure: true,
         recipients: [],
-        smtp: {
-          host: '',
-          port: 587,
-          secure: false,
-          auth: { user: '', pass: '' },
-          from: '',
-        },
+        from: '', // Optional custom from address
       },
       webhook: { enabled: false, onSuccess: true, onFailure: true, url: '' },
     },
@@ -449,7 +444,7 @@ const ConfigTab = () => {
                         <Box>
                           <Typography fontWeight="bold">Email Notifications</Typography>
                           <Typography variant="pi" textColor="neutral500">
-                            Send email alerts using your SMTP server
+                            Send email alerts using Strapi's email plugin
                           </Typography>
                         </Box>
                         <Switch
@@ -465,143 +460,62 @@ const ConfigTab = () => {
                       </Flex>
                       {alerts.channels.email.enabled && (
                         <Box paddingTop={3}>
-                          {/* SMTP Settings */}
-                          <Typography variant="delta" paddingBottom={2}>SMTP Configuration</Typography>
-                          <Flex direction="column" gap={3}>
-                            <Flex gap={3}>
-                              <Box flex="2">
-                                <Field.Root>
-                                  <Field.Label>SMTP Host</Field.Label>
-                                  <TextInput
-                                    placeholder="smtp.gmail.com"
-                                    value={alerts.channels.email.smtp?.host || ''}
-                                    onChange={(e) => setAlerts((p) => ({
-                                      ...p,
-                                      channels: {
-                                        ...p.channels,
-                                        email: {
-                                          ...p.channels.email,
-                                          smtp: { ...p.channels.email.smtp, host: e.target.value },
-                                        },
-                                      },
-                                    }))}
-                                  />
-                                </Field.Root>
-                              </Box>
-                              <Box flex="1">
-                                <Field.Root>
-                                  <Field.Label>Port</Field.Label>
-                                  <NumberInput
-                                    value={alerts.channels.email.smtp?.port || 587}
-                                    onValueChange={(value) => setAlerts((p) => ({
-                                      ...p,
-                                      channels: {
-                                        ...p.channels,
-                                        email: {
-                                          ...p.channels.email,
-                                          smtp: { ...p.channels.email.smtp, port: value },
-                                        },
-                                      },
-                                    }))}
-                                    min={1}
-                                    max={65535}
-                                  />
-                                </Field.Root>
-                              </Box>
-                            </Flex>
-                            <Flex gap={3}>
-                              <Box flex="1">
-                                <Field.Root>
-                                  <Field.Label>SMTP Username</Field.Label>
-                                  <TextInput
-                                    placeholder="your-email@gmail.com"
-                                    value={alerts.channels.email.smtp?.auth?.user || ''}
-                                    onChange={(e) => setAlerts((p) => ({
-                                      ...p,
-                                      channels: {
-                                        ...p.channels,
-                                        email: {
-                                          ...p.channels.email,
-                                          smtp: {
-                                            ...p.channels.email.smtp,
-                                            auth: { ...p.channels.email.smtp?.auth, user: e.target.value },
-                                          },
-                                        },
-                                      },
-                                    }))}
-                                  />
-                                </Field.Root>
-                              </Box>
-                              <Box flex="1">
-                                <Field.Root>
-                                  <Field.Label>SMTP Password / App Password</Field.Label>
-                                  <TextInput
-                                    type="password"
-                                    placeholder="Enter password"
-                                    value={alerts.channels.email.smtp?.auth?.pass || ''}
-                                    onChange={(e) => setAlerts((p) => ({
-                                      ...p,
-                                      channels: {
-                                        ...p.channels,
-                                        email: {
-                                          ...p.channels.email,
-                                          smtp: {
-                                            ...p.channels.email.smtp,
-                                            auth: { ...p.channels.email.smtp?.auth, pass: e.target.value },
-                                          },
-                                        },
-                                      },
-                                    }))}
-                                  />
-                                </Field.Root>
-                              </Box>
-                            </Flex>
+                          {/* Email Plugin Status */}
+                          {!alerts.emailPluginConfigured && (
+                            <Alert
+                              variant="warning"
+                              title="Email Plugin Not Configured"
+                              style={{ marginBottom: '16px' }}
+                            >
+                              <Typography variant="omega">
+                                Strapi's email plugin is not configured. To enable email alerts, install and configure an email provider:
+                              </Typography>
+                              <ul style={{ paddingLeft: '20px', marginTop: '8px' }}>
+                                <li><Typography variant="pi">@strapi/provider-email-sendgrid</Typography></li>
+                                <li><Typography variant="pi">@strapi/provider-email-mailgun</Typography></li>
+                                <li><Typography variant="pi">@strapi/provider-email-amazon-ses</Typography></li>
+                                <li><Typography variant="pi">@strapi/provider-email-nodemailer</Typography></li>
+                              </ul>
+                              <Typography variant="pi" paddingTop={2}>
+                                See: <a href="https://docs.strapi.io/dev-docs/providers" target="_blank" rel="noopener noreferrer">Strapi Email Providers Documentation</a>
+                              </Typography>
+                            </Alert>
+                          )}
+                          {alerts.emailPluginConfigured && (
+                            <Alert variant="success" title="Email Plugin Configured" style={{ marginBottom: '16px' }}>
+                              <Typography variant="omega">
+                                Strapi's email plugin is configured and ready to send alerts.
+                              </Typography>
+                            </Alert>
+                          )}
+
+                          {/* Recipients */}
+                          <Field.Root>
+                            <Field.Label>Email Recipients (comma-separated)</Field.Label>
+                            <TextInput
+                              placeholder="admin@example.com, alerts@example.com"
+                              value={emailRecipients}
+                              onChange={(e) => setEmailRecipients(e.target.value)}
+                            />
+                            <Field.Hint>Enter email addresses to receive sync alerts</Field.Hint>
+                          </Field.Root>
+
+                          {/* Optional From Address */}
+                          <Box paddingTop={3}>
                             <Field.Root>
-                              <Field.Label>From Email Address</Field.Label>
+                              <Field.Label>From Email Address (optional)</Field.Label>
                               <TextInput
-                                placeholder="noreply@yourcompany.com"
-                                value={alerts.channels.email.smtp?.from || ''}
+                                placeholder="Leave empty to use default"
+                                value={alerts.channels.email.from || ''}
                                 onChange={(e) => setAlerts((p) => ({
                                   ...p,
                                   channels: {
                                     ...p.channels,
-                                    email: {
-                                      ...p.channels.email,
-                                      smtp: { ...p.channels.email.smtp, from: e.target.value },
-                                    },
+                                    email: { ...p.channels.email, from: e.target.value },
                                   },
                                 }))}
                               />
-                              <Field.Hint>The sender email address for alert notifications</Field.Hint>
-                            </Field.Root>
-                            <Flex alignItems="center" gap={2}>
-                              <Switch
-                                checked={alerts.channels.email.smtp?.secure || false}
-                                onCheckedChange={(checked) => setAlerts((p) => ({
-                                  ...p,
-                                  channels: {
-                                    ...p.channels,
-                                    email: {
-                                      ...p.channels.email,
-                                      smtp: { ...p.channels.email.smtp, secure: checked },
-                                    },
-                                  },
-                                }))}
-                              />
-                              <Typography variant="pi">Use SSL/TLS (port 465)</Typography>
-                            </Flex>
-                          </Flex>
-
-                          {/* Recipients */}
-                          <Box paddingTop={4}>
-                            <Typography variant="delta" paddingBottom={2}>Recipients</Typography>
-                            <Field.Root>
-                              <Field.Label>Email Recipients (comma-separated)</Field.Label>
-                              <TextInput
-                                placeholder="admin@example.com, alerts@example.com"
-                                value={emailRecipients}
-                                onChange={(e) => setEmailRecipients(e.target.value)}
-                              />
+                              <Field.Hint>Override the default sender address from Strapi email plugin</Field.Hint>
                             </Field.Root>
                           </Box>
 
@@ -635,7 +549,10 @@ const ConfigTab = () => {
                                 />
                                 <Typography variant="pi">On Failure</Typography>
                               </Flex>
-                              <TextButton onClick={() => handleTestAlert('email')}>
+                              <TextButton 
+                                onClick={() => handleTestAlert('email')}
+                                disabled={!alerts.emailPluginConfigured}
+                              >
                                 Send Test Email
                               </TextButton>
                             </Flex>

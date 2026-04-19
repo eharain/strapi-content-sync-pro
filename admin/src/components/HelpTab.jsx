@@ -505,43 +505,42 @@ http://localhost:1337</CodeBlock>
 
             <HelpSection title="Email Notifications">
               <Typography variant="omega">
-                Send email alerts using your own SMTP server. The plugin sends emails directly without
-                requiring the Strapi email plugin.
+                Send email alerts using Strapi's built-in email plugin. This plugin leverages whatever
+                email provider you have configured in your Strapi instance.
               </Typography>
 
               <Box background="neutral100" padding={4} hasRadius marginTop={4} marginBottom={4}>
-                <Typography variant="sigma" textColor="neutral800">SMTP Configuration</Typography>
+                <Typography variant="sigma" textColor="neutral800">Supported Email Providers</Typography>
                 <Typography variant="omega" paddingTop={1}>
-                  You need to provide your SMTP server details:
+                  Strapi supports several email providers. Install and configure one of:
                 </Typography>
                 <ul style={{ paddingLeft: '20px', marginTop: '8px' }}>
-                  <li><Typography variant="omega"><strong>Host</strong> - SMTP server (e.g., smtp.gmail.com, smtp.sendgrid.net)</Typography></li>
-                  <li><Typography variant="omega"><strong>Port</strong> - Usually 587 (TLS) or 465 (SSL)</Typography></li>
-                  <li><Typography variant="omega"><strong>Username</strong> - Your email/SMTP username</Typography></li>
-                  <li><Typography variant="omega"><strong>Password</strong> - Your email password or app password</Typography></li>
-                  <li><Typography variant="omega"><strong>From</strong> - Sender email address</Typography></li>
+                  <li><Typography variant="omega"><strong>@strapi/provider-email-sendgrid</strong> - SendGrid (recommended for production)</Typography></li>
+                  <li><Typography variant="omega"><strong>@strapi/provider-email-mailgun</strong> - Mailgun</Typography></li>
+                  <li><Typography variant="omega"><strong>@strapi/provider-email-amazon-ses</strong> - Amazon SES</Typography></li>
+                  <li><Typography variant="omega"><strong>@strapi/provider-email-nodemailer</strong> - Any SMTP server (Gmail, custom, etc.)</Typography></li>
                 </ul>
               </Box>
 
               <Box background="warning100" padding={4} hasRadius marginBottom={4}>
-                <Typography variant="sigma" textColor="warning700">Gmail Configuration</Typography>
+                <Typography variant="sigma" textColor="warning700">Setup Instructions</Typography>
                 <Typography variant="omega" paddingTop={1}>
-                  For Gmail, you must use an <strong>App Password</strong> instead of your regular password:
+                  To enable email alerts:
                 </Typography>
                 <ol style={{ paddingLeft: '20px', marginTop: '8px' }}>
-                  <li><Typography variant="omega">Go to Google Account → Security</Typography></li>
-                  <li><Typography variant="omega">Enable 2-Step Verification if not already enabled</Typography></li>
-                  <li><Typography variant="omega">Go to App Passwords</Typography></li>
-                  <li><Typography variant="omega">Generate a new app password for "Mail"</Typography></li>
-                  <li><Typography variant="omega">Use this 16-character password in SMTP settings</Typography></li>
+                  <li><Typography variant="omega">Install a provider: <code>npm install @strapi/provider-email-sendgrid</code></Typography></li>
+                  <li><Typography variant="omega">Configure in <code>config/plugins.js</code></Typography></li>
+                  <li><Typography variant="omega">Add your API key or credentials</Typography></li>
+                  <li><Typography variant="omega">Restart Strapi</Typography></li>
                 </ol>
                 <Typography variant="pi" paddingTop={2}>
-                  Gmail SMTP: Host: smtp.gmail.com, Port: 587, Secure: Off
+                  See: <a href="https://docs.strapi.io/dev-docs/providers" target="_blank" rel="noopener noreferrer">Strapi Email Providers Documentation</a>
                 </Typography>
               </Box>
 
               <Typography variant="omega">
                 <strong>Recipients:</strong> Enter comma-separated email addresses to receive alerts.
+                The sender address uses your email plugin's default, or you can override it.
               </Typography>
             </HelpSection>
 
