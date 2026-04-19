@@ -70,9 +70,9 @@ module.exports = ({ strapi }) => {
      */
     getLocalVersionInfo() {
       return {
-        strapi: strapi.config.info?.strapi || 'unknown',
-        node: process.version,
-        timestamp: new Date().toISOString(),
+        strapiVersion: strapi.config.info?.strapi || 'unknown',
+        nodeVersion: process.version,
+        serverTime: new Date().toISOString(),
       };
     },
 
@@ -121,11 +121,13 @@ module.exports = ({ strapi }) => {
         missingRemote: [],
         typeMismatches: [],
         warnings: [],
+        differences: [],
       };
 
       if (!localSchema || !remoteSchema) {
         result.compatible = false;
         result.warnings.push('One or both schemas are missing');
+        result.differences.push('Missing schema');
         return result;
       }
 
@@ -136,6 +138,7 @@ module.exports = ({ strapi }) => {
       for (const field of localFields) {
         if (!remoteFields.has(field)) {
           result.missingRemote.push(field);
+          result.differences.push(`Field "${field}" missing on remote`);
           if (mode === 'strict') {
             result.compatible = false;
           }
@@ -145,6 +148,7 @@ module.exports = ({ strapi }) => {
       for (const field of remoteFields) {
         if (!localFields.has(field)) {
           result.missingLocal.push(field);
+          result.differences.push(`Field "${field}" missing locally`);
           if (mode === 'strict') {
             result.compatible = false;
           }
@@ -163,6 +167,7 @@ module.exports = ({ strapi }) => {
               localType: local.type,
               remoteType: remote.type,
             });
+            result.differences.push(`Field "${field}" type mismatch: ${local.type} vs ${remote.type}`);
             result.compatible = false;
           }
 
@@ -170,6 +175,7 @@ module.exports = ({ strapi }) => {
           if (local.type === 'relation' && remote.type === 'relation') {
             if (local.relation !== remote.relation) {
               result.warnings.push(`Relation type mismatch for field "${field}": ${local.relation} vs ${remote.relation}`);
+              result.differences.push(`Field "${field}" relation mismatch`);
               if (mode === 'strict') {
                 result.compatible = false;
               }
@@ -209,7 +215,7 @@ module.exports = ({ strapi }) => {
         };
       }
 
-      const result = { compatible: true, message: '' };
+      const result = { compatible: true, message: '', driftLevel: 'none' };
 
       switch (allowedDrift) {
         case 'exact':
@@ -218,11 +224,13 @@ module.exports = ({ strapi }) => {
             local.minor === remote.minor &&
             local.patch === remote.patch
           );
+          result.driftLevel = result.compatible ? 'none' : 'patch';
           result.message = result.compatible ? 'Versions match exactly' : 'Versions must match exactly';
           break;
 
         case 'minor':
           result.compatible = local.major === remote.major;
+          result.driftLevel = local.major !== remote.major ? 'major' : (local.minor !== remote.minor ? 'minor' : 'patch');
           result.message = result.compatible
             ? 'Major versions match'
             : `Major version mismatch: ${local.major} vs ${remote.major}`;
@@ -230,6 +238,7 @@ module.exports = ({ strapi }) => {
 
         case 'major':
           result.compatible = true; // Allow any version
+          result.driftLevel = local.major !== remote.major ? 'major' : (local.minor !== remote.minor ? 'minor' : 'patch');
           result.message = 'Major version drift allowed';
           break;
       }

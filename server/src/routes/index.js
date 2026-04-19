@@ -23,6 +23,12 @@ module.exports = [
     handler: 'config.set',
     config: { policies: [] },
   },
+  {
+    method: 'POST',
+    path: '/config/remote-login',
+    handler: 'config.remoteLogin',
+    config: { policies: [] },
+  },
   // Step 3 — Content-type discovery
   {
     method: 'GET',
@@ -208,13 +214,25 @@ module.exports = [
     method: 'GET',
     path: '/enforcement/local-info',
     handler: 'syncEnforcement.getLocalInfo',
+    config: { policies: [], auth: false },
+  },
+  {
+    method: 'GET',
+    path: '/enforcement/remote-info',
+    handler: 'syncEnforcement.getRemoteInfo',
+    config: { policies: [] },
+  },
+  {
+    method: 'GET',
+    path: '/enforcement/check/:type',
+    handler: 'syncEnforcement.runDiagnosticCheck',
     config: { policies: [] },
   },
   {
     method: 'GET',
     path: '/enforcement/schema/:uid',
     handler: 'syncEnforcement.getLocalSchema',
-    config: { policies: [] },
+    config: { policies: [], auth: false },
   },
   {
     method: 'POST',
@@ -260,6 +278,12 @@ module.exports = [
   // ============================================
   // Dependencies — Dependency analysis for sync
   // ============================================
+  {
+    method: 'GET',
+    path: '/dependencies/all',
+    handler: 'dependencies.analyzeAll',
+    config: { policies: [] },
+  },
   {
     method: 'GET',
     path: '/dependencies/:uid',

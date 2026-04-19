@@ -13,6 +13,9 @@ import {
   Switch,
   NumberInput,
   TextButton,
+  Badge,
+  Loader,
+  Modal,
 } from '@strapi/design-system';
 import { useFetchClient } from '@strapi/strapi/admin';
 
@@ -29,6 +32,24 @@ const ConfigTab = () => {
     sharedSecret: '',
   });
 
+  // Login modal state
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [credentials, setCredentials] = useState({
+    email: '',
+    password: '',
+  });
+  const [loginState, setLoginState] = useState({
+    loading: false,
+    success: false,
+    error: null,
+  });
+
+  // Connection test state
+  const [connectionTest, setConnectionTest] = useState({
+    testing: false,
+    result: null,
+  });
+
   // Enforcement settings
   const [enforcement, setEnforcement] = useState({
     enforceSchemaMatch: true,
@@ -39,6 +60,12 @@ const ConfigTab = () => {
     maxTimeDriftMs: 60000,
     validateBeforeSync: true,
     blockOnFailure: true,
+  });
+
+  // Diagnostic state
+  const [diagnostics, setDiagnostics] = useState({
+    running: null, // 'schema' | 'version' | 'time' | 'all'
+    results: {},
   });
 
   // Alert settings
@@ -52,7 +79,7 @@ const ConfigTab = () => {
         onSuccess: false,
         onFailure: true,
         recipients: [],
-        from: '', // Optional custom from address
+        from: '',
       },
       webhook: { enabled: false, onSuccess: true, onFailure: true, url: '' },
     },
@@ -111,6 +138,149 @@ const ConfigTab = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Login with credentials to remote server and get/create API token
+  const handleLoginWithCredentials = async () => {
+    if (!config.baseUrl || !credentials.email || !credentials.password) {
+      setLoginState({ loading: false, success: false, error: 'Please fill in all fields' });
+      return;
+    }
+
+    setLoginState({ loading: true, success: false, error: null });
+
+    try {
+      // Call our backend to proxy the login request
+      const response = await post(`/${PLUGIN_ID}/config/remote-login`, {
+        baseUrl: config.baseUrl,
+        email: credentials.email,
+        password: credentials.password,
+      });
+
+      // The backend saves the token, so we need to refresh config
+      const configRes = await get(`/${PLUGIN_ID}/config`);
+      if (configRes.data.data) {
+        setConfig((prev) => ({ ...prev, ...configRes.data.data }));
+      }
+
+      // Clear credentials (they should not be stored)
+      setCredentials({ email: '', password: '' });
+
+      setLoginState({ loading: false, success: true, error: null });
+      setMessage({ type: 'success', text: 'API token created successfully!' });
+
+      // Close modal after short delay to show success
+      setTimeout(() => {
+        setShowLoginModal(false);
+        setLoginState({ loading: false, success: false, error: null });
+      }, 1500);
+    } catch (err) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Authentication failed';
+      setLoginState({ loading: false, success: false, error: errorMessage });
+    }
+  };
+
+  // Test connection to remote server
+  const handleTestConnection = async () => {
+    setConnectionTest({ testing: true, result: null });
+    try {
+      const startTime = Date.now();
+      const response = await get(`/${PLUGIN_ID}/ping`);
+      const latency = Date.now() - startTime;
+
+      // Also try to get remote info
+      let remoteInfo = null;
+      try {
+        const infoRes = await get(`/${PLUGIN_ID}/enforcement/remote-info`);
+        remoteInfo = infoRes.data.data;
+      } catch (e) {
+        // Remote info not available
+      }
+
+      setConnectionTest({
+        testing: false,
+        result: {
+          success: true,
+          latency,
+          message: 'Connection successful',
+          remoteInfo,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      setConnectionTest({
+        testing: false,
+        result: {
+          success: false,
+          message: err.response?.data?.error?.message || err.message || 'Connection failed',
+          error: err.response?.status || 'Network Error',
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+  };
+
+  // Run individual diagnostic check
+  const handleRunDiagnostic = async (type) => {
+    setDiagnostics(prev => ({ ...prev, running: type }));
+    try {
+      const response = await get(`/${PLUGIN_ID}/enforcement/check/${type}`);
+      setDiagnostics(prev => ({
+        ...prev,
+        running: null,
+        results: {
+          ...prev.results,
+          [type]: {
+            ...response.data.data,
+            timestamp: new Date().toISOString(),
+          },
+        },
+      }));
+    } catch (err) {
+      setDiagnostics(prev => ({
+        ...prev,
+        running: null,
+        results: {
+          ...prev.results,
+          [type]: {
+            passed: false,
+            error: err.response?.data?.error?.message || err.message || 'Check failed',
+            timestamp: new Date().toISOString(),
+          },
+        },
+      }));
+    }
+  };
+
+  // Run all diagnostic checks
+  const handleRunAllDiagnostics = async () => {
+    setDiagnostics({ running: 'all', results: {} });
+
+    const checks = ['schema', 'version', 'time'];
+    const results = {};
+
+    for (const check of checks) {
+      try {
+        const response = await get(`/${PLUGIN_ID}/enforcement/check/${check}`);
+        results[check] = {
+          ...response.data.data,
+          timestamp: new Date().toISOString(),
+        };
+      } catch (err) {
+        results[check] = {
+          passed: false,
+          error: err.response?.data?.error?.message || err.message || 'Check failed',
+          timestamp: new Date().toISOString(),
+        };
+      }
+    }
+
+    setDiagnostics({ running: null, results });
+  };
+
+  // Clear diagnostic results
+  const handleClearDiagnostics = () => {
+    setDiagnostics({ running: null, results: {} });
   };
 
   const handleSaveEnforcement = async () => {
@@ -188,178 +358,394 @@ const ConfigTab = () => {
           {/* Connection Tab */}
           <Tabs.Content value="connection">
             <Box>
-              <Typography variant="delta" paddingBottom={2}>Remote Server Connection</Typography>
-              <Flex direction="column" gap={4}>
-                <Field.Root>
-                  <Field.Label>Base URL</Field.Label>
-                  <TextInput
-                    placeholder="https://remote-strapi.example.com"
-                    value={config.baseUrl}
-                    onChange={(e) => setConfig((p) => ({ ...p, baseUrl: e.target.value }))}
-                  />
-                  <Field.Hint>The base URL of the remote Strapi instance (no trailing slash)</Field.Hint>
-                </Field.Root>
+              <Flex gap={6}>
+                {/* LEFT COLUMN: Remote Server */}
+                <Box flex="1">
+                  <Typography variant="delta" paddingBottom={4}>Remote Server</Typography>
 
-                <Field.Root>
-                  <Field.Label>API Token</Field.Label>
-                  <TextInput
-                    type="password"
-                    placeholder="Enter API token"
-                    value={config.apiToken}
-                    onChange={(e) => setConfig((p) => ({ ...p, apiToken: e.target.value }))}
-                  />
-                  <Field.Hint>API token for authenticating with the remote server</Field.Hint>
-                </Field.Root>
+                  <Flex direction="column" gap={4}>
+                    <Field.Root>
+                      <Field.Label>Server URL</Field.Label>
+                      <TextInput
+                        placeholder="https://my-other-strapi.com"
+                        value={config.baseUrl}
+                        onChange={(e) => setConfig((p) => ({ ...p, baseUrl: e.target.value }))}
+                      />
+                      <Field.Hint>URL of the Strapi server to sync with</Field.Hint>
+                    </Field.Root>
 
-                <Field.Root>
-                  <Field.Label>Instance ID</Field.Label>
-                  <TextInput
-                    placeholder="unique-instance-id"
-                    value={config.instanceId}
-                    onChange={(e) => setConfig((p) => ({ ...p, instanceId: e.target.value }))}
-                  />
-                  <Field.Hint>A unique identifier for this Strapi instance</Field.Hint>
-                </Field.Root>
+                    <Field.Root>
+                      <Field.Label>API Token</Field.Label>
+                      <Flex gap={2}>
+                        <Box flex="1">
+                          <TextInput
+                            type="password"
+                            placeholder="Paste API token or generate one"
+                            value={config.apiToken}
+                            onChange={(e) => setConfig((p) => ({ ...p, apiToken: e.target.value }))}
+                          />
+                        </Box>
+                        <Button 
+                          variant="secondary"
+                          onClick={() => setShowLoginModal(true)}
+                          disabled={!config.baseUrl}
+                        >
+                          {config.apiToken ? 'Regenerate' : 'Generate'}
+                        </Button>
+                      </Flex>
+                      <Field.Hint>Full Access token from the remote server</Field.Hint>
+                    </Field.Root>
+                  </Flex>
+                </Box>
 
-                <Field.Root>
-                  <Field.Label>Shared Secret</Field.Label>
-                  <TextInput
-                    type="password"
-                    placeholder="Enter shared secret for HMAC signing"
-                    value={config.sharedSecret}
-                    onChange={(e) => setConfig((p) => ({ ...p, sharedSecret: e.target.value }))}
-                  />
-                  <Field.Hint>Must match on both instances for secure communication</Field.Hint>
-                </Field.Root>
+                {/* RIGHT COLUMN: Local Settings */}
+                <Box flex="1">
+                  <Typography variant="delta" paddingBottom={4}>Local Settings</Typography>
 
-                <Button onClick={handleSaveConnection} loading={saving}>
-                  Save Connection
+                  <Flex direction="column" gap={4}>
+                    <Field.Root>
+                      <Field.Label>Instance Name</Field.Label>
+                      <TextInput
+                        placeholder="e.g., production, staging, local"
+                        value={config.instanceId}
+                        onChange={(e) => setConfig((p) => ({ ...p, instanceId: e.target.value }))}
+                      />
+                      <Field.Hint>Name to identify this server in logs</Field.Hint>
+                    </Field.Root>
+
+                    <Field.Root>
+                      <Field.Label>Shared Secret</Field.Label>
+                      <TextInput
+                        type="password"
+                        placeholder="Secret key for bi-directional sync"
+                        value={config.sharedSecret}
+                        onChange={(e) => setConfig((p) => ({ ...p, sharedSecret: e.target.value }))}
+                      />
+                      <Field.Hint>Must match on both servers</Field.Hint>
+                    </Field.Root>
+                  </Flex>
+                </Box>
+              </Flex>
+
+              {/* Connection Status */}
+              {connectionTest.result && (
+                <Box paddingTop={4}>
+                  <Alert 
+                    variant={connectionTest.result.success ? 'success' : 'danger'}
+                    closeLabel="Close"
+                    onClose={() => setConnectionTest({ testing: false, result: null })}
+                  >
+                    {connectionTest.result.success 
+                      ? `Connected successfully (${connectionTest.result.latency}ms)`
+                      : connectionTest.result.error || 'Connection failed'
+                    }
+                  </Alert>
+                </Box>
+              )}
+
+              {/* Action Buttons */}
+              <Flex gap={2} paddingTop={6}>
+                <Button 
+                  onClick={handleSaveConnection} 
+                  loading={saving} 
+                  disabled={!config.baseUrl || !config.apiToken}
+                >
+                  Save
+                </Button>
+                <Button 
+                  variant="secondary" 
+                  onClick={handleTestConnection}
+                  loading={connectionTest.testing}
+                  disabled={!config.baseUrl || !config.apiToken}
+                >
+                  Test Connection
                 </Button>
               </Flex>
             </Box>
+
+            {/* Login Modal for Token Generation */}
+            {showLoginModal && (
+              <Modal.Root open={showLoginModal} onOpenChange={setShowLoginModal}>
+                <Modal.Content>
+                  <Modal.Header>
+                    <Modal.Title>Generate API Token</Modal.Title>
+                  </Modal.Header>
+                  <Modal.Body>
+                    <Typography variant="omega" textColor="neutral600" paddingBottom={4}>
+                      Log in to <strong>{config.baseUrl}</strong> to automatically create an API token.
+                      Your credentials are not stored.
+                    </Typography>
+
+                    <Flex direction="column" gap={4}>
+                      <Field.Root>
+                        <Field.Label>Admin Email</Field.Label>
+                        <TextInput
+                          type="email"
+                          placeholder="admin@example.com"
+                          value={credentials.email}
+                          onChange={(e) => setCredentials((p) => ({ ...p, email: e.target.value }))}
+                        />
+                      </Field.Root>
+
+                      <Field.Root>
+                        <Field.Label>Admin Password</Field.Label>
+                        <TextInput
+                          type="password"
+                          placeholder="Enter password"
+                          value={credentials.password}
+                          onChange={(e) => setCredentials((p) => ({ ...p, password: e.target.value }))}
+                        />
+                      </Field.Root>
+
+                      {loginState.error && (
+                        <Alert variant="danger" closeLabel="Close" onClose={() => setLoginState((p) => ({ ...p, error: null }))}>
+                          {loginState.error}
+                        </Alert>
+                      )}
+
+                      {loginState.success && (
+                        <Alert variant="success">
+                          Token created successfully!
+                        </Alert>
+                      )}
+                    </Flex>
+                  </Modal.Body>
+                  <Modal.Footer>
+                    <Modal.Close>
+                      <Button variant="tertiary">Cancel</Button>
+                    </Modal.Close>
+                    <Button 
+                      onClick={handleLoginWithCredentials}
+                      loading={loginState.loading}
+                      disabled={!credentials.email || !credentials.password || loginState.success}
+                    >
+                      {loginState.loading ? 'Creating...' : 'Create Token'}
+                    </Button>
+                  </Modal.Footer>
+                </Modal.Content>
+              </Modal.Root>
+            )}
           </Tabs.Content>
 
           {/* Enforcement Tab */}
           <Tabs.Content value="enforcement">
             <Box>
-              <Typography variant="delta" paddingBottom={2}>Sync Enforcement Policies</Typography>
-              <Typography variant="omega" textColor="neutral600" paddingBottom={4}>
-                Configure validation checks that run before each sync operation.
-              </Typography>
-
-              <Flex direction="column" gap={4}>
-                {/* Schema Match */}
-                <Box padding={4} background="neutral0" hasRadius>
-                  <Flex justifyContent="space-between" alignItems="center">
-                    <Box>
-                      <Typography fontWeight="bold">Schema Match</Typography>
-                      <Typography variant="pi" textColor="neutral500">
-                        Verify content type schemas are compatible before syncing
-                      </Typography>
-                    </Box>
-                    <Switch
-                      checked={enforcement.enforceSchemaMatch}
-                      onCheckedChange={(checked) => setEnforcement((p) => ({ ...p, enforceSchemaMatch: checked }))}
-                    />
+              <Flex gap={6}>
+                {/* LEFT COLUMN: Settings */}
+                <Box flex="1">
+                  <Flex justifyContent="space-between" alignItems="center" paddingBottom={4}>
+                    <Typography variant="delta">Enforcement Settings</Typography>
+                    <Button onClick={handleSaveEnforcement} loading={saving} size="S">
+                      Save
+                    </Button>
                   </Flex>
-                  {enforcement.enforceSchemaMatch && (
-                    <Box paddingTop={3}>
-                      <Field.Root>
-                        <Field.Label>Match Mode</Field.Label>
-                        <SingleSelect
-                          value={enforcement.schemaMatchMode}
-                          onChange={(value) => setEnforcement((p) => ({ ...p, schemaMatchMode: value }))}
-                        >
-                          <SingleSelectOption value="strict">Strict (exact match)</SingleSelectOption>
-                          <SingleSelectOption value="compatible">Compatible (allow extra fields)</SingleSelectOption>
-                          <SingleSelectOption value="none">None (skip check)</SingleSelectOption>
-                        </SingleSelect>
-                      </Field.Root>
-                    </Box>
-                  )}
-                </Box>
 
-                {/* Version Check */}
-                <Box padding={4} background="neutral0" hasRadius>
-                  <Flex justifyContent="space-between" alignItems="center">
-                    <Box>
-                      <Typography fontWeight="bold">Version Check</Typography>
-                      <Typography variant="pi" textColor="neutral500">
-                        Ensure Strapi versions are compatible
-                      </Typography>
+                  <Flex direction="column" gap={3}>
+                    {/* Schema Match Row */}
+                    <Box padding={3} background="neutral100" hasRadius>
+                      <Flex justifyContent="space-between" alignItems="center">
+                        <Box flex="1">
+                          <Typography fontWeight="bold">Schema Match</Typography>
+                          <Typography variant="pi" textColor="neutral500">Verify schemas are compatible</Typography>
+                        </Box>
+                        <Flex gap={2} alignItems="center">
+                          {enforcement.enforceSchemaMatch && (
+                            <SingleSelect
+                              size="S"
+                              value={enforcement.schemaMatchMode}
+                              onChange={(value) => setEnforcement((p) => ({ ...p, schemaMatchMode: value }))}
+                              style={{ width: '140px' }}
+                            >
+                              <SingleSelectOption value="strict">Strict</SingleSelectOption>
+                              <SingleSelectOption value="compatible">Compatible</SingleSelectOption>
+                            </SingleSelect>
+                          )}
+                          <Switch
+                            checked={enforcement.enforceSchemaMatch}
+                            onCheckedChange={(checked) => setEnforcement((p) => ({ ...p, enforceSchemaMatch: checked }))}
+                          />
+                          <Button 
+                            variant="tertiary" 
+                            size="S"
+                            onClick={() => handleRunDiagnostic('schema')}
+                            loading={diagnostics.running === 'schema'}
+                          >
+                            Check
+                          </Button>
+                        </Flex>
+                      </Flex>
                     </Box>
-                    <Switch
-                      checked={enforcement.enforceVersionCheck}
-                      onCheckedChange={(checked) => setEnforcement((p) => ({ ...p, enforceVersionCheck: checked }))}
-                    />
-                  </Flex>
-                  {enforcement.enforceVersionCheck && (
-                    <Box paddingTop={3}>
-                      <Field.Root>
-                        <Field.Label>Allowed Version Drift</Field.Label>
-                        <SingleSelect
-                          value={enforcement.allowedVersionDrift}
-                          onChange={(value) => setEnforcement((p) => ({ ...p, allowedVersionDrift: value }))}
-                        >
-                          <SingleSelectOption value="exact">Exact (must match)</SingleSelectOption>
-                          <SingleSelectOption value="minor">Minor (same major)</SingleSelectOption>
-                          <SingleSelectOption value="major">Major (allow any)</SingleSelectOption>
-                          <SingleSelectOption value="none">None (skip check)</SingleSelectOption>
-                        </SingleSelect>
-                      </Field.Root>
-                    </Box>
-                  )}
-                </Box>
 
-                {/* DateTime Sync */}
-                <Box padding={4} background="neutral0" hasRadius>
-                  <Flex justifyContent="space-between" alignItems="center">
-                    <Box>
-                      <Typography fontWeight="bold">DateTime Sync</Typography>
-                      <Typography variant="pi" textColor="neutral500">
-                        Verify server clocks are synchronized
-                      </Typography>
+                    {/* Version Check Row */}
+                    <Box padding={3} background="neutral100" hasRadius>
+                      <Flex justifyContent="space-between" alignItems="center">
+                        <Box flex="1">
+                          <Typography fontWeight="bold">Version Check</Typography>
+                          <Typography variant="pi" textColor="neutral500">Ensure Strapi versions match</Typography>
+                        </Box>
+                        <Flex gap={2} alignItems="center">
+                          {enforcement.enforceVersionCheck && (
+                            <SingleSelect
+                              size="S"
+                              value={enforcement.allowedVersionDrift}
+                              onChange={(value) => setEnforcement((p) => ({ ...p, allowedVersionDrift: value }))}
+                              style={{ width: '140px' }}
+                            >
+                              <SingleSelectOption value="exact">Exact</SingleSelectOption>
+                              <SingleSelectOption value="minor">Minor</SingleSelectOption>
+                              <SingleSelectOption value="major">Major</SingleSelectOption>
+                            </SingleSelect>
+                          )}
+                          <Switch
+                            checked={enforcement.enforceVersionCheck}
+                            onCheckedChange={(checked) => setEnforcement((p) => ({ ...p, enforceVersionCheck: checked }))}
+                          />
+                          <Button 
+                            variant="tertiary" 
+                            size="S"
+                            onClick={() => handleRunDiagnostic('version')}
+                            loading={diagnostics.running === 'version'}
+                          >
+                            Check
+                          </Button>
+                        </Flex>
+                      </Flex>
                     </Box>
-                    <Switch
-                      checked={enforcement.enforceDateTimeSync}
-                      onCheckedChange={(checked) => setEnforcement((p) => ({ ...p, enforceDateTimeSync: checked }))}
-                    />
-                  </Flex>
-                  {enforcement.enforceDateTimeSync && (
-                    <Box paddingTop={3}>
-                      <Field.Root>
-                        <Field.Label>Max Time Drift (ms)</Field.Label>
-                        <NumberInput
-                          value={enforcement.maxTimeDriftMs}
-                          onValueChange={(value) => setEnforcement((p) => ({ ...p, maxTimeDriftMs: value }))}
-                          min={1000}
-                          max={86400000}
+
+                    {/* Time Sync Row */}
+                    <Box padding={3} background="neutral100" hasRadius>
+                      <Flex justifyContent="space-between" alignItems="center">
+                        <Box flex="1">
+                          <Typography fontWeight="bold">Time Sync</Typography>
+                          <Typography variant="pi" textColor="neutral500">Verify server clocks match</Typography>
+                        </Box>
+                        <Flex gap={2} alignItems="center">
+                          {enforcement.enforceDateTimeSync && (
+                            <Box style={{ width: '100px' }}>
+                              <NumberInput
+                                size="S"
+                                value={enforcement.maxTimeDriftMs}
+                                onValueChange={(value) => setEnforcement((p) => ({ ...p, maxTimeDriftMs: value }))}
+                                min={1000}
+                                max={86400000}
+                              />
+                            </Box>
+                          )}
+                          <Switch
+                            checked={enforcement.enforceDateTimeSync}
+                            onCheckedChange={(checked) => setEnforcement((p) => ({ ...p, enforceDateTimeSync: checked }))}
+                          />
+                          <Button 
+                            variant="tertiary" 
+                            size="S"
+                            onClick={() => handleRunDiagnostic('time')}
+                            loading={diagnostics.running === 'time'}
+                          >
+                            Check
+                          </Button>
+                        </Flex>
+                      </Flex>
+                    </Box>
+
+                    {/* Block on Failure Row */}
+                    <Box padding={3} background="neutral100" hasRadius>
+                      <Flex justifyContent="space-between" alignItems="center">
+                        <Box flex="1">
+                          <Typography fontWeight="bold">Block on Failure</Typography>
+                          <Typography variant="pi" textColor="neutral500">Stop sync if checks fail</Typography>
+                        </Box>
+                        <Switch
+                          checked={enforcement.blockOnFailure}
+                          onCheckedChange={(checked) => setEnforcement((p) => ({ ...p, blockOnFailure: checked }))}
                         />
-                        <Field.Hint>Maximum allowed time difference (1000ms - 86400000ms)</Field.Hint>
-                      </Field.Root>
+                      </Flex>
                     </Box>
-                  )}
-                </Box>
 
-                {/* Block on Failure */}
-                <Box padding={4} background="neutral0" hasRadius>
-                  <Flex justifyContent="space-between" alignItems="center">
-                    <Box>
-                      <Typography fontWeight="bold">Block on Failure</Typography>
-                      <Typography variant="pi" textColor="neutral500">
-                        Prevent sync if enforcement checks fail
-                      </Typography>
+                    {/* Run All Button */}
+                    <Box paddingTop={2}>
+                      <Button 
+                        variant="secondary"
+                        onClick={handleRunAllDiagnostics}
+                        loading={diagnostics.running === 'all'}
+                        fullWidth
+                      >
+                        Run All Checks
+                      </Button>
                     </Box>
-                    <Switch
-                      checked={enforcement.blockOnFailure}
-                      onCheckedChange={(checked) => setEnforcement((p) => ({ ...p, blockOnFailure: checked }))}
-                    />
                   </Flex>
                 </Box>
 
-                <Button onClick={handleSaveEnforcement} loading={saving}>
-                  Save Enforcement Settings
-                </Button>
+                {/* RIGHT COLUMN: Results */}
+                <Box flex="1">
+                  <Flex justifyContent="space-between" alignItems="center" paddingBottom={4}>
+                    <Typography variant="delta">Check Results</Typography>
+                    {Object.keys(diagnostics.results).length > 0 && (
+                      <Button variant="tertiary" size="S" onClick={handleClearDiagnostics}>
+                        Clear
+                      </Button>
+                    )}
+                  </Flex>
+
+                  {Object.keys(diagnostics.results).length === 0 ? (
+                    <Box padding={4} background="neutral100" hasRadius>
+                      <Typography textColor="neutral500" textAlign="center">
+                        No results yet. Click "Check" buttons to run diagnostics.
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Flex direction="column" gap={3}>
+                      {/* Schema Result */}
+                      {diagnostics.results.schema && (
+                        <Box padding={3} background={diagnostics.results.schema.passed ? 'success100' : 'danger100'} hasRadius>
+                          <Flex justifyContent="space-between" alignItems="center" paddingBottom={2}>
+                            <Typography fontWeight="bold">Schema Match</Typography>
+                            <Badge active={diagnostics.results.schema.passed}>
+                              {diagnostics.results.schema.passed ? '✓ Pass' : '✗ Fail'}
+                            </Badge>
+                          </Flex>
+                          <Typography variant="pi" textColor={diagnostics.results.schema.passed ? 'success700' : 'danger700'}>
+                            {diagnostics.results.schema.error || 
+                             (diagnostics.results.schema.details?.mismatches?.length > 0 
+                               ? `${diagnostics.results.schema.details.mismatches.length} mismatch(es) found`
+                               : 'All schemas compatible')}
+                          </Typography>
+                        </Box>
+                      )}
+
+                      {/* Version Result */}
+                      {diagnostics.results.version && (
+                        <Box padding={3} background={diagnostics.results.version.passed ? 'success100' : 'danger100'} hasRadius>
+                          <Flex justifyContent="space-between" alignItems="center" paddingBottom={2}>
+                            <Typography fontWeight="bold">Version Check</Typography>
+                            <Badge active={diagnostics.results.version.passed}>
+                              {diagnostics.results.version.passed ? '✓ Pass' : '✗ Fail'}
+                            </Badge>
+                          </Flex>
+                          <Typography variant="pi" textColor={diagnostics.results.version.passed ? 'success700' : 'danger700'}>
+                            {diagnostics.results.version.error || 
+                             `Local: ${diagnostics.results.version.details?.localVersion || 'N/A'} → Remote: ${diagnostics.results.version.details?.remoteVersion || 'N/A'}`}
+                          </Typography>
+                        </Box>
+                      )}
+
+                      {/* Time Result */}
+                      {diagnostics.results.time && (
+                        <Box padding={3} background={diagnostics.results.time.passed ? 'success100' : 'danger100'} hasRadius>
+                          <Flex justifyContent="space-between" alignItems="center" paddingBottom={2}>
+                            <Typography fontWeight="bold">Time Sync</Typography>
+                            <Badge active={diagnostics.results.time.passed}>
+                              {diagnostics.results.time.passed ? '✓ Pass' : '✗ Fail'}
+                            </Badge>
+                          </Flex>
+                          <Typography variant="pi" textColor={diagnostics.results.time.passed ? 'success700' : 'danger700'}>
+                            {diagnostics.results.time.error || 
+                             `Drift: ${diagnostics.results.time.details?.driftMs || 0}ms (max: ${enforcement.maxTimeDriftMs}ms)`}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Flex>
+                  )}
+                </Box>
               </Flex>
             </Box>
           </Tabs.Content>
