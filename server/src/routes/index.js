@@ -73,11 +73,22 @@ const adminRoutes = [
   { method: 'GET',  path: '/alerts/stats',         handler: 'alerts.getStats',       config: { policies: [] } },
 
   // Media sync
-  { method: 'GET',  path: '/media-sync/settings', handler: 'syncMedia.getSettings',    config: { policies: [] } },
-  { method: 'PUT',  path: '/media-sync/settings', handler: 'syncMedia.updateSettings', config: { policies: [] } },
-  { method: 'GET',  path: '/media-sync/status',   handler: 'syncMedia.getStatus',      config: { policies: [] } },
-  { method: 'POST', path: '/media-sync/test',     handler: 'syncMedia.test',           config: { policies: [] } },
-  { method: 'POST', path: '/media-sync/run',      handler: 'syncMedia.run',            config: { policies: [] } },
+  { method: 'GET',    path: '/media-sync/profiles',              handler: 'syncMedia.getProfiles',         config: { policies: [] } },
+  { method: 'GET',    path: '/media-sync/profiles/:id',          handler: 'syncMedia.getProfile',          config: { policies: [] } },
+  { method: 'POST',   path: '/media-sync/profiles',              handler: 'syncMedia.createProfile',       config: { policies: [] } },
+  { method: 'PUT',    path: '/media-sync/profiles/:id',          handler: 'syncMedia.updateProfile',       config: { policies: [] } },
+  { method: 'DELETE', path: '/media-sync/profiles/:id',          handler: 'syncMedia.deleteProfile',       config: { policies: [] } },
+  { method: 'POST',   path: '/media-sync/profiles/:id/activate', handler: 'syncMedia.activateProfile',    config: { policies: [] } },
+  { method: 'POST',   path: '/media-sync/profiles/:id/run',     handler: 'syncMedia.runProfile',          config: { policies: [] } },
+  { method: 'POST',   path: '/media-sync/run-active',           handler: 'syncMedia.runActiveProfiles',   config: { policies: [] } },
+  { method: 'GET',    path: '/media-sync/global-settings',       handler: 'syncMedia.getGlobalSettings',  config: { policies: [] } },
+  { method: 'PUT',    path: '/media-sync/global-settings',       handler: 'syncMedia.updateGlobalSettings', config: { policies: [] } },
+  { method: 'GET',    path: '/media-sync/defaults',              handler: 'syncMedia.getDefaults',         config: { policies: [] } },
+  { method: 'GET',    path: '/media-sync/settings',              handler: 'syncMedia.getSettings',         config: { policies: [] } },
+  { method: 'PUT',    path: '/media-sync/settings',              handler: 'syncMedia.updateSettings',      config: { policies: [] } },
+  { method: 'GET',    path: '/media-sync/status',                handler: 'syncMedia.getStatus',           config: { policies: [] } },
+  { method: 'POST',   path: '/media-sync/test',                  handler: 'syncMedia.test',                config: { policies: [] } },
+  { method: 'POST',   path: '/media-sync/run',                   handler: 'syncMedia.run',                 config: { policies: [] } },
 
   // Dependencies
   { method: 'GET',  path: '/dependencies/all',             handler: 'dependencies.analyzeAll',   config: { policies: [] } },
