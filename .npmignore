@@ -1,0 +1,36 @@
+# Development files
+scripts/
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Test files
+*.test.js
+*.spec.js
+__tests__/
+coverage/
+
+# Build artifacts
+node_modules/
+.cache/
+.tmp/
+build/
+dist/
+
+# Documentation (kept in repo, not in package)
+docs/
+CONTRIBUTING.md
+CHANGELOG.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*

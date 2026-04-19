@@ -1,123 +1,188 @@
 # Strapi-to-Strapi Data Sync Plugin
 
-## Overview
-The **Strapi-to-Strapi Data Sync** plugin enables seamless data synchronization between two Strapi instances. It supports both manual and event-based sync, ensuring data consistency across environments.
+A powerful Strapi v5 plugin for synchronizing data between Strapi instances with bi-directional sync, field-level policies, scheduling, and alerts.
+
+[![npm version](https://badge.fury.io/js/strapi-to-strapi-data-sync.svg)](https://www.npmjs.com/package/strapi-to-strapi-data-sync)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
-- **Manual Sync**: Trigger synchronization on demand.
-- **Incremental Sync**: Only sync records updated since the last sync.
-- **Event-Based Sync**: Automatically sync records after creation or update.
-- **Conflict Resolution**: Configurable strategies (`latest`, `local_wins`, `remote_wins`).
-- **Secure Communication**: HMAC-SHA256 request signing with shared secrets.
-- **Admin UI**: Configure remote server, select content types, trigger sync, and view logs.
-- **Logging**: Detailed logs of sync operations.
+
+- **Bi-directional Sync** - Push, pull, or sync both ways
+- **Sync Profiles** - Define WHAT to sync with field-level control
+- **Execution Modes** - On-demand, scheduled, or live (real-time) sync
+- **Conflict Resolution** - Latest wins, local wins, or remote wins strategies
+- **Dependency Syncing** - Automatically sync related entities
+- **Enforcement Checks** - Schema validation, version checks, time sync
+- **Alerts** - Email (via Strapi email plugin), webhooks, and log notifications
+- **Secure** - HMAC-SHA256 signed requests with shared secrets
+- **Admin UI** - Complete configuration and monitoring interface
+
+## Requirements
+
+- Strapi v5.0.0 or higher
+- Node.js 20.0.0 or higher
 
 ## Installation
-1. Clone this repository into your Strapi project's `src/plugins` directory:
-   ```bash
-   git clone https://github.com/your-repo/strapi-plugin-strapi-to-strapi-data-sync src/plugins/strapi-to-strapi-data-sync
-   ```
-2. Enable the plugin in `config/plugins.js`:
-   ```javascript
-   module.exports = {
-     'strapi-to-strapi-data-sync': {
-       enabled: true,
-       resolve: './src/plugins/strapi-to-strapi-data-sync',
-     },
-   };
-   ```
-3. Restart your Strapi server.
 
-## Endpoints
+```bash
+npm install strapi-to-strapi-data-sync
+```
 
-### Public Endpoints
-| Method | Path                     | Description                | Auth  |
-|--------|--------------------------|----------------------------|-------|
-| `POST` | `/strapi-to-strapi-data-sync/receive` | Receive records from remote | HMAC  |
+Or with yarn:
 
-### Admin Endpoints
-| Method | Path                     | Description                |
-|--------|--------------------------|----------------------------|
-| `GET`  | `/strapi-to-strapi-data-sync/ping`    | Health check               |
-| `GET`  | `/strapi-to-strapi-data-sync/config`  | Get remote server config   |
-| `POST` | `/strapi-to-strapi-data-sync/config`  | Update remote server config|
-| `GET`  | `/strapi-to-strapi-data-sync/content-types` | List syncable content types |
-| `GET`  | `/strapi-to-strapi-data-sync/sync-config` | Get sync configuration     |
-| `POST` | `/strapi-to-strapi-data-sync/sync-config` | Update sync configuration  |
-| `POST` | `/strapi-to-strapi-data-sync/sync-now` | Trigger manual sync        |
-| `GET`  | `/strapi-to-strapi-data-sync/logs`    | View sync logs             |
+```bash
+yarn add strapi-to-strapi-data-sync
+```
 
 ## Configuration
 
-### Remote Server Configuration
-The following fields are stored in the plugin store (`core_store`):
-- **`baseUrl`**: Base URL of the remote Strapi instance.
-- **`apiToken`**: API token for authentication.
-- **`syncDirection`**: `push`, `pull`, or `bidirectional`.
-- **`instanceId`**: Unique identifier for this Strapi instance.
-- **`sharedSecret`**: Secret key for HMAC signing.
+### 1. Enable the plugin
 
-### Sync Configuration
-Define which content types to sync and their behavior:
-```json
-{
-  "contentTypes": [
-    {
-      "uid": "api::product.product",
-      "direction": "both",
-      "fields": ["name", "price", "stock"],
-      "enabled": true
-    }
-  ],
-  "conflictStrategy": "latest"
-}
+Add to your `config/plugins.js` (or `config/plugins.ts`):
+
+```javascript
+module.exports = {
+  'strapi-to-strapi-data-sync': {
+    enabled: true,
+  },
+};
 ```
 
-## Admin UI
-The plugin adds a tabbed interface to the Strapi admin panel:
-1. **Configuration**: Set remote server details.
-2. **Content Types**: Select content types and sync options.
-3. **Sync**: Trigger manual sync.
-4. **Logs**: View detailed sync logs.
+### 2. Rebuild Strapi
+
+```bash
+npm run build
+npm run develop
+```
+
+### 3. Configure via Admin UI
+
+1. Navigate to **Strapi-to-Strapi Data Sync** in the admin sidebar
+2. Go to **Configuration** tab
+3. Enter your remote server details:
+   - **Base URL**: The remote Strapi instance URL (e.g., `https://api.example.com`)
+   - **API Token**: Generate from remote Strapi's Settings → API Tokens
+   - **Instance ID**: Unique identifier for this instance
+   - **Shared Secret**: Same secret on both instances for HMAC signing
+
+## Quick Start
+
+### Step 1: Configure Connection
+In the **Configuration** tab, set up the remote server connection.
+
+### Step 2: Enable Content Types
+In the **Content Types** tab, toggle on the content types you want to sync. Default profiles are auto-generated.
+
+### Step 3: Run Sync
+In the **Sync** tab, click "Sync All Active Profiles" or run individual profiles.
+
+## Sync Profiles
+
+Sync Profiles define **what** to sync and **how** conflicts are resolved.
+
+### Simple Mode (Presets)
+- **Full Push** - Push all data to remote, local wins
+- **Full Pull** - Pull all data from remote, remote wins  
+- **Bidirectional** - Two-way sync, latest wins
+
+### Advanced Mode
+Configure individual field policies:
+- **Both** - Field syncs both directions
+- **Push** - Field only pushes to remote
+- **Pull** - Field only pulls from remote
+- **Exclude** - Field is never synced
+
+## Execution Modes
+
+Configure **when** sync runs in the Sync tab:
+
+| Mode | Description |
+|------|-------------|
+| **On Demand** | Manual trigger only |
+| **Scheduled** | Run at intervals (1-1440 minutes) |
+| **Live** | Real-time sync on content changes |
+
+## Enforcement
+
+Pre-sync validation (Configuration → Enforcement):
+
+- **Schema Match** - Verify content type schemas match (strict/compatible/none)
+- **Version Check** - Verify Strapi versions (exact/minor/major/none)
+- **DateTime Sync** - Verify server clocks are synchronized
+
+## Alerts
+
+Get notified of sync events (Configuration → Alerts):
+
+- **Strapi Logs** - Logs to sync log and server console
+- **Email** - Requires Strapi email plugin configured
+- **Webhook** - POST to any HTTP endpoint
+
+## API Endpoints
+
+### Admin Routes (authenticated)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/strapi-to-strapi-data-sync/config` | Get connection config |
+| `POST` | `/strapi-to-strapi-data-sync/config` | Update connection config |
+| `POST` | `/strapi-to-strapi-data-sync/sync-now` | Trigger manual sync |
+| `GET` | `/strapi-to-strapi-data-sync/sync-profiles` | List sync profiles |
+| `GET` | `/strapi-to-strapi-data-sync/logs` | View sync logs |
+
+### Public Routes (HMAC signed)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/strapi-to-strapi-data-sync/receive` | Receive data from remote |
 
 ## Security
-- **HMAC-SHA256**: Ensures secure communication between instances.
-- **Masked Secrets**: `apiToken` and `sharedSecret` are masked in the admin UI and GET responses.
 
-## Lifecycle Hooks
-- **`beforeCreate`**: Automatically generates a `syncId` (UUID) for new records.
-- **`afterCreate` / `afterUpdate`**: Pushes changes to the remote instance.
+- **API Tokens**: Use Strapi's built-in API token system
+- **HMAC-SHA256**: All inter-instance requests are signed
+- **Masked Secrets**: Sensitive data is masked in API responses
 
-## Logging
-Logs are stored in the `sync_logs` collection type and include:
-- Action (e.g., `push`, `pull`, `sync_complete`)
-- Content type
-- Sync ID
-- Status (`success`, `error`, `partial`)
-- Message
+## Example: E-commerce Sync
 
-## Development
-### File Structure
-```
-strapi-plugin-strapi-to-strapi-data-sync/
-├── server/
-│   ├── src/
-│   │   ├── controllers/       # API controllers
-│   │   ├── services/          # Business logic
-│   │   ├── utils/             # Helper functions
-│   │   ├── routes/            # Route definitions
-│   │   ├── content-types/     # Content type schemas
-│   │   └── middlewares/       # Custom middleware
-│   ├── bootstrap.js           # Lifecycle hooks
-│   ├── register.js            # Plugin registration
-│   └── destroy.js             # Cleanup
-├── admin/
-│   ├── src/
-│   │   ├── components/        # React components
-│   │   ├── pages/             # Admin pages
-│   │   └── pluginId.js        # Plugin ID
-└── README.md
-```
+Sync products from a central catalog to multiple storefronts:
+
+1. **Central Catalog** (source):
+   - Create "Full Push" profile for `api::product.product`
+   - Set execution mode to "Live"
+
+2. **Storefront** (target):
+   - Create "Full Pull" profile for `api::product.product`
+   - Set execution mode to "Scheduled" (every 5 minutes)
+
+## Troubleshooting
+
+### Common Issues
+
+| Error | Solution |
+|-------|----------|
+| "Remote server not configured" | Add Base URL and API Token in Configuration |
+| "401 Unauthorized" | Regenerate API token on remote server |
+| "HMAC verification failed" | Ensure shared secret matches on both instances |
+| "Schema mismatch" | Sync content type schemas or set enforcement to "compatible" |
+
+### Viewing Logs
+
+Check the **Logs** tab for detailed sync history including:
+- Timestamp and duration
+- Content type and record ID
+- Direction (push/pull)
+- Status and error messages
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.
 
 ## License
-MIT
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+## Author
+
+**Ejaz Husain Arain**
+- GitHub: [@eharain](https://github.com/eharain)
+- Email: eharain@yahoo.com
