@@ -1,13 +1,33 @@
 {
   "name": "strapi-to-strapi-data-sync",
-  "version": "0.1.0",
-  "description": "Strapi v5 plugin for syncing data between Strapi instances",
+  "version": "1.0.0",
+  "description": "Strapi v5 plugin for syncing data between Strapi instances with bi-directional sync, field-level policies, scheduling, and alerts",
   "license": "MIT",
   "author": {
     "name": "Ejaz Husain Arain",
     "email": "eharain@yahoo.com",
-    "url": "https://github.com/eharain/strapi-to-strapi-data-sync"
+    "url": "https://github.com/eharain"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eharain/strapi-plugins-strapi-to-strapi-data-sync.git"
+  },
+  "bugs": {
+    "url": "https://github.com/eharain/strapi-plugins-strapi-to-strapi-data-sync/issues"
+  },
+  "homepage": "https://github.com/eharain/strapi-plugins-strapi-to-strapi-data-sync#readme",
+  "keywords": [
+    "strapi",
+    "strapi-plugin",
+    "strapi-v5",
+    "sync",
+    "data-sync",
+    "synchronization",
+    "replication",
+    "migration",
+    "headless-cms",
+    "content-management"
+  ],
   "exports": {
     "./strapi-admin": {
       "source": "./admin/src/index.js",
@@ -25,25 +45,12 @@
   },
   "files": [
     "admin/",
-    "server/"
+    "server/",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "sync": "node D:/Rutba/ERP/pos-strapi/scripts/sync-data-sync-plugin.js",
-    "build": "strapi build",
-    "console": "strapi console",
-    "deploy": "strapi deploy",
-    "dev": "strapi develop",
-    "develop": "strapi develop",
-    "start": "strapi start",
-    "startjs": "node server.js",
-    "strapi": "strapi",
-    "upgrade": "npx @strapi/upgrade latest",
-    "upgrade:dry": "npx @strapi/upgrade latest --dry",
-    "plugin:sync": "node scripts/sync-data-sync-plugin.js",
-    "plugin:setup": "node scripts/setup-data-sync-plugin.js",
-    "plugin:setup:local": "node scripts/setup-data-sync-plugin.js --mode local",
-    "plugin:setup:package": "node scripts/setup-data-sync-plugin.js --mode package",
-    "postinstall": "node scripts/setup-data-sync-plugin.js --mode local"
+    "test": "echo \"No tests yet\" && exit 0"
   },
   "peerDependencies": {
     "@strapi/strapi": "^5.0.0",
