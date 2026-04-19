@@ -15,7 +15,11 @@ import {
   Badge,
   Loader,
   Divider,
+  Tabs,
+  Dialog,
+  IconButton,
 } from '@strapi/design-system';
+import { Pencil, Trash, Play, Check } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
 const PLUGIN_ID = 'strapi-to-strapi-data-sync';
@@ -32,441 +36,519 @@ const DIRECTION_OPTIONS = [
   { value: 'both', label: 'Both directions' },
 ];
 
-const DEFAULTS = {
-  strategy: 'disabled',
-  direction: 'push',
-  pageSize: 50,
-  batchConcurrency: 2,
-  dryRun: false,
-  skipIfSameSize: true,
-  includeMime: [],
-  excludeMime: [],
-  rsyncCommand: 'rsync',
-  rsyncArgs: '-avz --delete-after',
-  localMediaPath: '',
-  remoteMediaPath: '',
-  sshPort: 22,
-  sshIdentityFile: '',
-  rsyncTimeoutMs: 30 * 60 * 1000,
-  includePatterns: [],
-  excludePatterns: [],
-};
+const CONFLICT_OPTIONS = [
+  { value: 'latest_wins', label: 'Latest Wins' },
+  { value: 'local_wins', label: 'Local Wins' },
+  { value: 'remote_wins', label: 'Remote Wins' },
+];
+
+const EXECUTION_MODE_OPTIONS = [
+  { value: 'on_demand', label: 'On Demand (Manual)' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'live', label: 'Live (Real-time)' },
+];
+
+const SCHEDULE_TYPE_OPTIONS = [
+  { value: 'interval', label: 'Interval (setInterval)' },
+  { value: 'timeout', label: 'Timeout (chained setTimeout)' },
+  { value: 'cron', label: 'Cron (wall-clock)' },
+  { value: 'external', label: 'External scheduler' },
+];
 
 function patternsToText(arr) {
   return (arr || []).join('\n');
 }
 function textToPatterns(text) {
-  return (text || '')
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return (text || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+}
+function mimeToText(arr) {
+  return (arr || []).join(', ');
+}
+function textToMime(text) {
+  return (text || '').split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
 }
 
+const EMPTY_PROFILE = {
+  name: '',
+  strategy: 'url',
+  direction: 'both',
+  conflictStrategy: 'latest_wins',
+  syncDbRows: true,
+  syncFileBytes: true,
+  includeMime: [],
+  excludeMime: [],
+  includePatterns: [],
+  excludePatterns: [],
+  dryRun: false,
+  executionMode: 'on_demand',
+  scheduleType: 'interval',
+  scheduleInterval: 60,
+  cronExpression: '',
+  enabled: true,
+};
+
 const MediaTab = () => {
-  const { get, put, post } = useFetchClient();
-  const [settings, setSettings] = useState(DEFAULTS);
+  const { get, put, post, del } = useFetchClient();
+  const [profiles, setProfiles] = useState([]);
+  const [globalSettings, setGlobalSettings] = useState({});
   const [status, setStatus] = useState(null);
+  const [defaults, setDefaults] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState(null);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [message, setMessage] = useState(null);
-  const [runResult, setRunResult] = useState(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const s = await get(`/${PLUGIN_ID}/media-sync/settings`);
-        setSettings({ ...DEFAULTS, ...(s.data.data || {}) });
-        const st = await get(`/${PLUGIN_ID}/media-sync/status`);
-        setStatus(st.data.data);
-      } catch (err) {
-        setMessage({ type: 'danger', text: `Failed to load media sync settings: ${err.message}` });
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  // Edit modal state
+  const [editProfile, setEditProfile] = useState(null);
+  const [editMode, setEditMode] = useState(null); // 'create' | 'edit'
 
-  const update = (patch) => setSettings((p) => ({ ...p, ...patch }));
-
-  const handleSave = async () => {
-    setSaving(true);
-    setMessage(null);
+  const reload = async () => {
     try {
-      const res = await put(`/${PLUGIN_ID}/media-sync/settings`, settings);
-      setSettings({ ...DEFAULTS, ...(res.data.data || {}) });
-      setMessage({ type: 'success', text: 'Media sync settings saved.' });
+      const [pRes, gRes, sRes, dRes] = await Promise.all([
+        get(`/${PLUGIN_ID}/media-sync/profiles`),
+        get(`/${PLUGIN_ID}/media-sync/global-settings`),
+        get(`/${PLUGIN_ID}/media-sync/status`),
+        get(`/${PLUGIN_ID}/media-sync/defaults`),
+      ]);
+      setProfiles(pRes.data.data || []);
+      setGlobalSettings(gRes.data.data || {});
+      setStatus(sRes.data.data || {});
+      setDefaults(dRes.data.data || {});
     } catch (err) {
-      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+      setMessage({ type: 'danger', text: `Failed to load: ${err?.response?.data?.error?.message || err.message}` });
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
 
+  useEffect(() => { reload(); }, []);
+
+  const handleSaveGlobal = async () => {
+    setSaving(true); setMessage(null);
+    try {
+      const res = await put(`/${PLUGIN_ID}/media-sync/global-settings`, globalSettings);
+      setGlobalSettings(res.data.data || {});
+      setMessage({ type: 'success', text: 'Global settings saved.' });
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+    } finally { setSaving(false); }
+  };
+
+  const handleSaveProfile = async () => {
+    setSaving(true); setMessage(null);
+    try {
+      if (editMode === 'create') {
+        await post(`/${PLUGIN_ID}/media-sync/profiles`, editProfile);
+        setMessage({ type: 'success', text: 'Profile created.' });
+      } else {
+        await put(`/${PLUGIN_ID}/media-sync/profiles/${editProfile.id}`, editProfile);
+        setMessage({ type: 'success', text: 'Profile updated.' });
+      }
+      setEditProfile(null); setEditMode(null);
+      await reload();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+    } finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this media profile?')) return;
+    try {
+      await del(`/${PLUGIN_ID}/media-sync/profiles/${id}`);
+      setMessage({ type: 'success', text: 'Profile deleted.' });
+      await reload();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+    }
+  };
+
+  const handleActivate = async (id) => {
+    try {
+      await post(`/${PLUGIN_ID}/media-sync/profiles/${id}/activate`, {});
+      setMessage({ type: 'success', text: 'Profile activated.' });
+      await reload();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+    }
+  };
+
+  const handleRunProfile = async (id) => {
+    setRunning(true); setMessage(null);
+    try {
+      await post(`/${PLUGIN_ID}/media-sync/profiles/${id}/run`, {});
+      setMessage({ type: 'success', text: 'Media sync complete.' });
+      await reload();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+    } finally { setRunning(false); }
+  };
+
+  const handleRunAll = async () => {
+    setRunning(true); setMessage(null);
+    try {
+      await post(`/${PLUGIN_ID}/media-sync/run-active`, {});
+      setMessage({ type: 'success', text: 'All active media profiles synced.' });
+      await reload();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+    } finally { setRunning(false); }
+  };
+
   const handleTest = async () => {
-    setTesting(true);
-    setMessage(null);
+    setTesting(true); setMessage(null);
     try {
       const res = await post(`/${PLUGIN_ID}/media-sync/test`, {});
       const data = res.data.data;
       setMessage({
         type: data.ok ? 'success' : 'danger',
-        text: data.ok
-          ? `Connection OK${data.version ? ` (${data.version})` : ''}`
-          : `Test failed: ${data.error}`,
+        text: data.ok ? `Connection OK${data.version ? ` (${data.version})` : ''}` : `Test failed: ${data.error}`,
       });
     } catch (err) {
       setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleRun = async (dryRun = false) => {
-    setRunning(true);
-    setMessage(null);
-    setRunResult(null);
-    try {
-      const res = await post(`/${PLUGIN_ID}/media-sync/run`, { dryRun });
-      setRunResult(res.data.data);
-      setMessage({ type: 'success', text: dryRun ? 'Dry-run complete.' : 'Media sync complete.' });
-      const st = await get(`/${PLUGIN_ID}/media-sync/status`);
-      setStatus(st.data.data);
-    } catch (err) {
-      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
-    } finally {
-      setRunning(false);
-    }
+    } finally { setTesting(false); }
   };
 
   if (loading) {
-    return (
-      <Flex justifyContent="center" padding={8}>
-        <Loader />
-      </Flex>
-    );
+    return <Flex justifyContent="center" padding={8}><Loader /></Flex>;
   }
 
-  const isRsync = settings.strategy === 'rsync';
-  const isUrl = settings.strategy === 'url';
-  const isDisabled = settings.strategy === 'disabled';
+  const ep = editProfile || {};
+  const updateEp = (patch) => setEditProfile((p) => ({ ...p, ...patch }));
 
   return (
     <Box padding={4}>
       <Box paddingBottom={4}>
         <Typography variant="alpha">Media Sync</Typography>
         <Typography variant="epsilon" textColor="neutral600" paddingTop={1}>
-          Sync files from <code>plugin::upload.file</code> between two Strapi instances. Choose a strategy, direction, and pagination to safely handle large libraries.
+          Profile-based media synchronization for <code>plugin::upload.file</code>. Sync both file metadata (DB rows) and actual file bytes.
         </Typography>
       </Box>
 
       {message && (
         <Box paddingBottom={4}>
-          <Alert variant={message.type} onClose={() => setMessage(null)} closeLabel="Close">
-            {message.text}
-          </Alert>
+          <Alert variant={message.type} onClose={() => setMessage(null)} closeLabel="Close">{message.text}</Alert>
         </Box>
       )}
 
-      {/* Strategy */}
-      <Box background="neutral0" padding={4} hasRadius shadow="tableShadow" marginBottom={4}>
-        <Typography variant="delta">Strategy</Typography>
-        <Box paddingTop={3}>
-          <Flex gap={4} wrap="wrap">
-            <Box style={{ minWidth: 280, flex: 1 }}>
-              <Field.Root>
-                <Field.Label>Sync strategy</Field.Label>
-                <SingleSelect value={settings.strategy} onChange={(v) => update({ strategy: v })}>
-                  {STRATEGY_OPTIONS.map((o) => (
-                    <SingleSelectOption key={o.value} value={o.value}>{o.label}</SingleSelectOption>
-                  ))}
-                </SingleSelect>
-                <Field.Hint>
-                  {isDisabled && 'No media will be synced.'}
-                  {isUrl && 'HTTP upload/download via the remote /api/upload endpoint. Works with any provider on either side.'}
-                  {isRsync && 'File-level copy with rsync. Requires both sides to use the local provider and SSH access.'}
-                </Field.Hint>
-              </Field.Root>
-            </Box>
-            <Box style={{ minWidth: 280, flex: 1 }}>
-              <Field.Root>
-                <Field.Label>Direction</Field.Label>
-                <SingleSelect value={settings.direction} onChange={(v) => update({ direction: v })}>
-                  {DIRECTION_OPTIONS.map((o) => (
-                    <SingleSelectOption key={o.value} value={o.value}>{o.label}</SingleSelectOption>
-                  ))}
-                </SingleSelect>
-              </Field.Root>
-            </Box>
-          </Flex>
-        </Box>
-      </Box>
+      <Tabs.Root defaultValue="profiles">
+        <Tabs.List>
+          <Tabs.Trigger value="profiles">Profiles</Tabs.Trigger>
+          <Tabs.Trigger value="global">Global Settings</Tabs.Trigger>
+          <Tabs.Trigger value="status">Status</Tabs.Trigger>
+        </Tabs.List>
 
-      {/* Pagination / batching */}
-      <Box background="neutral0" padding={4} hasRadius shadow="tableShadow" marginBottom={4}>
-        <Typography variant="delta">Pagination & batching</Typography>
-        <Typography variant="pi" textColor="neutral600">
-          Files are processed in pages so memory stays bounded even on very large libraries.
-        </Typography>
-        <Box paddingTop={3}>
-          <Flex gap={4} wrap="wrap">
-            <Box style={{ minWidth: 220 }}>
-              <Field.Root>
-                <Field.Label>Page size</Field.Label>
-                <NumberInput
-                  value={settings.pageSize}
-                  onValueChange={(v) => update({ pageSize: v })}
-                  min={1}
-                  max={500}
-                />
-                <Field.Hint>Files listed per page (1-500).</Field.Hint>
-              </Field.Root>
-            </Box>
-            <Box style={{ minWidth: 220 }}>
-              <Field.Root>
-                <Field.Label>Batch concurrency</Field.Label>
-                <NumberInput
-                  value={settings.batchConcurrency}
-                  onValueChange={(v) => update({ batchConcurrency: v })}
-                  min={1}
-                  max={10}
-                />
-                <Field.Hint>Parallel file transfers per page (1-10).</Field.Hint>
-              </Field.Root>
-            </Box>
-            <Box style={{ minWidth: 220, alignSelf: 'center' }}>
-              <Flex alignItems="center" gap={2}>
-                <Switch
-                  checked={!!settings.dryRun}
-                  onCheckedChange={(v) => update({ dryRun: v })}
-                />
-                <Typography>Dry run (no changes)</Typography>
+        {/* ── Profiles Tab ────────────────────────────────────────────── */}
+        <Tabs.Content value="profiles">
+          <Box paddingTop={4}>
+            <Flex justifyContent="space-between" alignItems="center" paddingBottom={3}>
+              <Typography variant="delta">Media Sync Profiles</Typography>
+              <Flex gap={2}>
+                <Button variant="secondary" onClick={handleTest} loading={testing} disabled={testing}>Test connection</Button>
+                <Button variant="secondary" onClick={handleRunAll} loading={running} disabled={running}>Sync All Active</Button>
+                <Button onClick={() => { setEditProfile({ ...EMPTY_PROFILE, includeMime: defaults?.mimeAll || [] }); setEditMode('create'); }}>
+                  Create Profile
+                </Button>
               </Flex>
-            </Box>
-          </Flex>
-        </Box>
-      </Box>
+            </Flex>
 
-      {/* URL strategy options */}
-      {isUrl && (
-        <Box background="neutral0" padding={4} hasRadius shadow="tableShadow" marginBottom={4}>
-          <Typography variant="delta">URL strategy options</Typography>
-          <Box paddingTop={3}>
-            <Flex gap={4} wrap="wrap">
-              <Box style={{ minWidth: 260, alignSelf: 'center' }}>
-                <Flex alignItems="center" gap={2}>
-                  <Switch
-                    checked={!!settings.skipIfSameSize}
-                    onCheckedChange={(v) => update({ skipIfSameSize: v })}
-                  />
-                  <Typography>Skip when hash + size match</Typography>
+            {profiles.length === 0 ? (
+              <Box background="neutral100" padding={6} hasRadius>
+                <Typography variant="omega" textColor="neutral600">No media profiles yet. Click "Create Profile" to get started.</Typography>
+              </Box>
+            ) : (
+              <Box>
+                {/* Header */}
+                <Flex background="neutral100" padding={3} hasRadius style={{ fontWeight: 600 }}>
+                  <Box style={{ flex: 2 }}><Typography variant="sigma">Name</Typography></Box>
+                  <Box style={{ flex: 1 }}><Typography variant="sigma">Strategy</Typography></Box>
+                  <Box style={{ flex: 1 }}><Typography variant="sigma">Direction</Typography></Box>
+                  <Box style={{ flex: 1 }}><Typography variant="sigma">Conflict</Typography></Box>
+                  <Box style={{ flex: 1 }}><Typography variant="sigma">Execution</Typography></Box>
+                  <Box style={{ flex: 1 }}><Typography variant="sigma">Sync Scope</Typography></Box>
+                  <Box style={{ width: 180 }}><Typography variant="sigma">Actions</Typography></Box>
                 </Flex>
+                {profiles.map((p) => (
+                  <Flex key={p.id} padding={3} borderColor="neutral150" style={{ borderBottom: '1px solid #eee' }} alignItems="center">
+                    <Box style={{ flex: 2 }}>
+                      <Flex gap={2} alignItems="center">
+                        <Typography variant="omega" fontWeight={p.active ? 'bold' : 'regular'}>{p.name}</Typography>
+                        {p.active && <Badge active>Active</Badge>}
+                      </Flex>
+                    </Box>
+                    <Box style={{ flex: 1 }}><Typography variant="pi">{p.strategy}</Typography></Box>
+                    <Box style={{ flex: 1 }}><Typography variant="pi">{p.direction}</Typography></Box>
+                    <Box style={{ flex: 1 }}><Typography variant="pi">{(p.conflictStrategy || '').replace('_', ' ')}</Typography></Box>
+                    <Box style={{ flex: 1 }}><Typography variant="pi">{(p.executionMode || '').replace('_', ' ')}</Typography></Box>
+                    <Box style={{ flex: 1 }}>
+                      <Typography variant="pi">
+                        {p.syncDbRows && p.syncFileBytes ? 'DB + Files' : p.syncDbRows ? 'DB rows' : p.syncFileBytes ? 'Files' : 'None'}
+                      </Typography>
+                    </Box>
+                    <Flex style={{ width: 180 }} gap={1}>
+                      {!p.active && (
+                        <Button variant="tertiary" size="S" onClick={() => handleActivate(p.id)} startIcon={<Check />}>Activate</Button>
+                      )}
+                      {p.active && (
+                        <Button variant="secondary" size="S" onClick={() => handleRunProfile(p.id)} loading={running} disabled={running} startIcon={<Play />}>Run</Button>
+                      )}
+                      <IconButton label="Edit" onClick={() => { setEditProfile({ ...p }); setEditMode('edit'); }}><Pencil /></IconButton>
+                      <IconButton label="Delete" onClick={() => handleDelete(p.id)}><Trash /></IconButton>
+                    </Flex>
+                  </Flex>
+                ))}
               </Box>
-              <Box style={{ minWidth: 260, flex: 1 }}>
-                <Field.Root>
-                  <Field.Label>Include MIME prefixes</Field.Label>
-                  <TextInput
-                    value={(settings.includeMime || []).join(',')}
-                    onChange={(e) => update({ includeMime: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                    placeholder="image/, application/pdf"
-                  />
-                  <Field.Hint>Comma-separated. Leave empty to allow all.</Field.Hint>
-                </Field.Root>
-              </Box>
-              <Box style={{ minWidth: 260, flex: 1 }}>
-                <Field.Root>
-                  <Field.Label>Exclude MIME prefixes</Field.Label>
-                  <TextInput
-                    value={(settings.excludeMime || []).join(',')}
-                    onChange={(e) => update({ excludeMime: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                    placeholder="video/"
-                  />
-                </Field.Root>
-              </Box>
-            </Flex>
+            )}
           </Box>
-        </Box>
-      )}
+        </Tabs.Content>
 
-      {/* rsync strategy options */}
-      {isRsync && (
-        <Box background="neutral0" padding={4} hasRadius shadow="tableShadow" marginBottom={4}>
-          <Typography variant="delta">rsync options</Typography>
-          <Typography variant="pi" textColor="neutral600">
-            The plugin runs the <code>rsync</code> binary on the host where Strapi is running. SSH keys, firewalls, and permissions must be configured outside Strapi.
-          </Typography>
-          <Box paddingTop={3}>
-            <Flex gap={4} wrap="wrap">
-              <Box style={{ minWidth: 260, flex: 1 }}>
-                <Field.Root>
-                  <Field.Label>Local media path</Field.Label>
-                  <TextInput
-                    value={settings.localMediaPath}
-                    onChange={(e) => update({ localMediaPath: e.target.value })}
-                    placeholder="./public/uploads"
-                  />
-                </Field.Root>
-              </Box>
-              <Box style={{ minWidth: 260, flex: 1 }}>
-                <Field.Root>
-                  <Field.Label>Remote media path</Field.Label>
-                  <TextInput
-                    value={settings.remoteMediaPath}
-                    onChange={(e) => update({ remoteMediaPath: e.target.value })}
-                    placeholder="user@host:/srv/strapi/public/uploads"
-                  />
-                  <Field.Hint>SSH target (user@host:/path) or a locally mounted share.</Field.Hint>
-                </Field.Root>
-              </Box>
-            </Flex>
-            <Box paddingTop={3}>
+        {/* ── Global Settings Tab ─────────────────────────────────────── */}
+        <Tabs.Content value="global">
+          <Box paddingTop={4}>
+            <Typography variant="delta" paddingBottom={3}>Global Media Settings</Typography>
+            <Box background="neutral0" padding={4} hasRadius shadow="tableShadow" marginBottom={4}>
               <Flex gap={4} wrap="wrap">
                 <Box style={{ minWidth: 220 }}>
                   <Field.Root>
+                    <Field.Label>Page size</Field.Label>
+                    <NumberInput value={globalSettings.pageSize || 50} onValueChange={(v) => setGlobalSettings((s) => ({ ...s, pageSize: v }))} min={1} max={500} />
+                    <Field.Hint>Files per page (1-500).</Field.Hint>
+                  </Field.Root>
+                </Box>
+                <Box style={{ minWidth: 220 }}>
+                  <Field.Root>
+                    <Field.Label>Batch concurrency</Field.Label>
+                    <NumberInput value={globalSettings.batchConcurrency || 2} onValueChange={(v) => setGlobalSettings((s) => ({ ...s, batchConcurrency: v }))} min={1} max={10} />
+                  </Field.Root>
+                </Box>
+                <Box style={{ minWidth: 260, alignSelf: 'center' }}>
+                  <Flex alignItems="center" gap={2}>
+                    <Switch checked={!!globalSettings.skipIfSameSize} onCheckedChange={(v) => setGlobalSettings((s) => ({ ...s, skipIfSameSize: v }))} />
+                    <Typography>Skip when hash + size match</Typography>
+                  </Flex>
+                </Box>
+              </Flex>
+
+              <Divider style={{ margin: '16px 0' }} />
+              <Typography variant="sigma" paddingBottom={2}>rsync defaults</Typography>
+              <Flex gap={4} wrap="wrap">
+                <Box style={{ minWidth: 260, flex: 1 }}>
+                  <Field.Root>
                     <Field.Label>rsync command</Field.Label>
-                    <TextInput
-                      value={settings.rsyncCommand}
-                      onChange={(e) => update({ rsyncCommand: e.target.value })}
-                      placeholder="rsync"
-                    />
+                    <TextInput value={globalSettings.rsyncCommand || 'rsync'} onChange={(e) => setGlobalSettings((s) => ({ ...s, rsyncCommand: e.target.value }))} />
                   </Field.Root>
                 </Box>
                 <Box style={{ minWidth: 260, flex: 1 }}>
                   <Field.Root>
                     <Field.Label>rsync args</Field.Label>
-                    <TextInput
-                      value={settings.rsyncArgs}
-                      onChange={(e) => update({ rsyncArgs: e.target.value })}
-                      placeholder="-avz --delete-after"
-                    />
-                    <Field.Hint>Added before source/destination. Dry-run is toggled separately.</Field.Hint>
+                    <TextInput value={globalSettings.rsyncArgs || '-avz --delete-after'} onChange={(e) => setGlobalSettings((s) => ({ ...s, rsyncArgs: e.target.value }))} />
                   </Field.Root>
                 </Box>
               </Flex>
-            </Box>
-            <Box paddingTop={3}>
-              <Flex gap={4} wrap="wrap">
-                <Box style={{ minWidth: 180 }}>
+              <Flex gap={4} wrap="wrap" paddingTop={3}>
+                <Box style={{ minWidth: 260, flex: 1 }}>
                   <Field.Root>
-                    <Field.Label>SSH port</Field.Label>
-                    <NumberInput
-                      value={settings.sshPort}
-                      onValueChange={(v) => update({ sshPort: v })}
-                      min={1}
-                      max={65535}
-                    />
+                    <Field.Label>Local media path</Field.Label>
+                    <TextInput value={globalSettings.localMediaPath || ''} onChange={(e) => setGlobalSettings((s) => ({ ...s, localMediaPath: e.target.value }))} placeholder="./public/uploads" />
                   </Field.Root>
                 </Box>
                 <Box style={{ minWidth: 260, flex: 1 }}>
                   <Field.Root>
-                    <Field.Label>SSH identity file</Field.Label>
-                    <TextInput
-                      value={settings.sshIdentityFile}
-                      onChange={(e) => update({ sshIdentityFile: e.target.value })}
-                      placeholder="~/.ssh/id_ed25519"
-                    />
+                    <Field.Label>Remote media path</Field.Label>
+                    <TextInput value={globalSettings.remoteMediaPath || ''} onChange={(e) => setGlobalSettings((s) => ({ ...s, remoteMediaPath: e.target.value }))} placeholder="user@host:/srv/strapi/public/uploads" />
+                  </Field.Root>
+                </Box>
+                <Box style={{ minWidth: 120 }}>
+                  <Field.Root>
+                    <Field.Label>SSH port</Field.Label>
+                    <NumberInput value={globalSettings.sshPort || 22} onValueChange={(v) => setGlobalSettings((s) => ({ ...s, sshPort: v }))} min={1} max={65535} />
                   </Field.Root>
                 </Box>
                 <Box style={{ minWidth: 220 }}>
                   <Field.Root>
-                    <Field.Label>Timeout (ms)</Field.Label>
-                    <NumberInput
-                      value={settings.rsyncTimeoutMs}
-                      onValueChange={(v) => update({ rsyncTimeoutMs: v })}
-                      min={1000}
-                    />
+                    <Field.Label>SSH identity file</Field.Label>
+                    <TextInput value={globalSettings.sshIdentityFile || ''} onChange={(e) => setGlobalSettings((s) => ({ ...s, sshIdentityFile: e.target.value }))} placeholder="~/.ssh/id_ed25519" />
                   </Field.Root>
                 </Box>
               </Flex>
-            </Box>
-          </Box>
-        </Box>
-      )}
 
-      {/* Filename patterns */}
-      {!isDisabled && (
-        <Box background="neutral0" padding={4} hasRadius shadow="tableShadow" marginBottom={4}>
-          <Typography variant="delta">Filename filters</Typography>
-          <Typography variant="pi" textColor="neutral600">
-            One pattern per line. Wildcards <code>*</code> and <code>?</code> supported (URL strategy). rsync passes these as <code>--include</code>/<code>--exclude</code>.
-          </Typography>
-          <Box paddingTop={3}>
-            <Flex gap={4} wrap="wrap">
-              <Box style={{ minWidth: 260, flex: 1 }}>
-                <Field.Root>
-                  <Field.Label>Include patterns</Field.Label>
-                  <Textarea
-                    value={patternsToText(settings.includePatterns)}
-                    onChange={(e) => update({ includePatterns: textToPatterns(e.target.value) })}
-                    placeholder={'*.jpg\n*.png'}
-                  />
-                </Field.Root>
+              <Box paddingTop={4}>
+                <Button onClick={handleSaveGlobal} loading={saving} disabled={saving}>Save Global Settings</Button>
               </Box>
-              <Box style={{ minWidth: 260, flex: 1 }}>
-                <Field.Root>
-                  <Field.Label>Exclude patterns</Field.Label>
-                  <Textarea
-                    value={patternsToText(settings.excludePatterns)}
-                    onChange={(e) => update({ excludePatterns: textToPatterns(e.target.value) })}
-                    placeholder={'*.tmp\n.DS_Store'}
-                  />
-                </Field.Root>
+            </Box>
+          </Box>
+        </Tabs.Content>
+
+        {/* ── Status Tab ──────────────────────────────────────────────── */}
+        <Tabs.Content value="status">
+          <Box paddingTop={4}>
+            <Typography variant="delta" paddingBottom={3}>Media Sync Status</Typography>
+            {status?.profiles?.map((sp) => (
+              <Box key={sp.id} background="neutral0" padding={3} hasRadius shadow="tableShadow" marginBottom={2}>
+                <Flex justifyContent="space-between" alignItems="center">
+                  <Flex gap={2} alignItems="center">
+                    <Typography variant="omega" fontWeight="bold">{sp.name}</Typography>
+                    {sp.active && <Badge active>Active</Badge>}
+                    <Badge>{sp.running ? 'Running' : 'Idle'}</Badge>
+                  </Flex>
+                  <Typography variant="pi" textColor="neutral600">
+                    Mode: {(sp.executionMode || '').replace('_', ' ')} | Last: {sp.lastExecutedAt ? new Date(sp.lastExecutedAt).toLocaleString() : 'never'}
+                  </Typography>
+                </Flex>
               </Box>
-            </Flex>
+            ))}
+            {status?.lastResult && (
+              <Box paddingTop={3} background="neutral0" padding={4} hasRadius shadow="tableShadow">
+                <Typography variant="sigma">Last Run Result</Typography>
+                <Typography variant="pi" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                  {JSON.stringify(status.lastResult, null, 2)}
+                </Typography>
+              </Box>
+            )}
           </Box>
-        </Box>
+        </Tabs.Content>
+      </Tabs.Root>
+
+      {/* ── Profile Edit Dialog ────────────────────────────────────────── */}
+      {editProfile && (
+        <Dialog.Root open onOpenChange={(open) => { if (!open) { setEditProfile(null); setEditMode(null); } }}>
+          <Dialog.Content style={{ maxWidth: 720, maxHeight: '90vh', overflow: 'auto' }}>
+            <Dialog.Header>{editMode === 'create' ? 'Create Media Profile' : `Edit: ${ep.name}`}</Dialog.Header>
+            <Dialog.Body>
+              <Flex direction="column" gap={4}>
+                <Field.Root>
+                  <Field.Label>Profile name</Field.Label>
+                  <TextInput value={ep.name || ''} onChange={(e) => updateEp({ name: e.target.value })} placeholder="My Media Profile" />
+                </Field.Root>
+
+                <Flex gap={4} wrap="wrap">
+                  <Box style={{ flex: 1, minWidth: 200 }}>
+                    <Field.Root>
+                      <Field.Label>Strategy</Field.Label>
+                      <SingleSelect value={ep.strategy} onChange={(v) => updateEp({ strategy: v })}>
+                        {STRATEGY_OPTIONS.map((o) => <SingleSelectOption key={o.value} value={o.value}>{o.label}</SingleSelectOption>)}
+                      </SingleSelect>
+                    </Field.Root>
+                  </Box>
+                  <Box style={{ flex: 1, minWidth: 200 }}>
+                    <Field.Root>
+                      <Field.Label>Direction</Field.Label>
+                      <SingleSelect value={ep.direction} onChange={(v) => updateEp({ direction: v })}>
+                        {DIRECTION_OPTIONS.map((o) => <SingleSelectOption key={o.value} value={o.value}>{o.label}</SingleSelectOption>)}
+                      </SingleSelect>
+                    </Field.Root>
+                  </Box>
+                  <Box style={{ flex: 1, minWidth: 200 }}>
+                    <Field.Root>
+                      <Field.Label>Conflict strategy</Field.Label>
+                      <SingleSelect value={ep.conflictStrategy} onChange={(v) => updateEp({ conflictStrategy: v })}>
+                        {CONFLICT_OPTIONS.map((o) => <SingleSelectOption key={o.value} value={o.value}>{o.label}</SingleSelectOption>)}
+                      </SingleSelect>
+                    </Field.Root>
+                  </Box>
+                </Flex>
+
+                <Divider />
+                <Typography variant="sigma">Sync Scope</Typography>
+                <Flex gap={4}>
+                  <Flex alignItems="center" gap={2}>
+                    <Switch checked={!!ep.syncDbRows} onCheckedChange={(v) => updateEp({ syncDbRows: v })} />
+                    <Typography>Sync DB rows (metadata)</Typography>
+                  </Flex>
+                  <Flex alignItems="center" gap={2}>
+                    <Switch checked={!!ep.syncFileBytes} onCheckedChange={(v) => updateEp({ syncFileBytes: v })} />
+                    <Typography>Sync file bytes</Typography>
+                  </Flex>
+                  <Flex alignItems="center" gap={2}>
+                    <Switch checked={!!ep.dryRun} onCheckedChange={(v) => updateEp({ dryRun: v })} />
+                    <Typography>Dry run</Typography>
+                  </Flex>
+                </Flex>
+
+                <Divider />
+                <Typography variant="sigma">File Type Filters</Typography>
+                <Field.Root>
+                  <Field.Label>Include MIME types (comma or line separated)</Field.Label>
+                  <Textarea value={mimeToText(ep.includeMime)} onChange={(e) => updateEp({ includeMime: textToMime(e.target.value) })}
+                    placeholder="image/, video/mp4, application/pdf" />
+                  <Field.Hint>Leave empty to allow all. Common defaults: image/, video/mp4, video/webm, application/pdf, text/csv</Field.Hint>
+                </Field.Root>
+                <Field.Root>
+                  <Field.Label>Exclude MIME types</Field.Label>
+                  <Textarea value={mimeToText(ep.excludeMime)} onChange={(e) => updateEp({ excludeMime: textToMime(e.target.value) })} placeholder="video/x-msvideo" />
+                </Field.Root>
+                <Flex gap={4} wrap="wrap">
+                  <Box style={{ flex: 1, minWidth: 200 }}>
+                    <Field.Root>
+                      <Field.Label>Include filename patterns</Field.Label>
+                      <Textarea value={patternsToText(ep.includePatterns)} onChange={(e) => updateEp({ includePatterns: textToPatterns(e.target.value) })} placeholder={'*.jpg\n*.png'} />
+                    </Field.Root>
+                  </Box>
+                  <Box style={{ flex: 1, minWidth: 200 }}>
+                    <Field.Root>
+                      <Field.Label>Exclude filename patterns</Field.Label>
+                      <Textarea value={patternsToText(ep.excludePatterns)} onChange={(e) => updateEp({ excludePatterns: textToPatterns(e.target.value) })} placeholder={'*.tmp\n.DS_Store'} />
+                    </Field.Root>
+                  </Box>
+                </Flex>
+
+                <Divider />
+                <Typography variant="sigma">Execution Settings</Typography>
+                <Flex gap={4} wrap="wrap">
+                  <Box style={{ flex: 1, minWidth: 200 }}>
+                    <Field.Root>
+                      <Field.Label>Execution mode</Field.Label>
+                      <SingleSelect value={ep.executionMode} onChange={(v) => updateEp({ executionMode: v })}>
+                        {EXECUTION_MODE_OPTIONS.map((o) => <SingleSelectOption key={o.value} value={o.value}>{o.label}</SingleSelectOption>)}
+                      </SingleSelect>
+                    </Field.Root>
+                  </Box>
+                  {ep.executionMode === 'scheduled' && (
+                    <>
+                      <Box style={{ flex: 1, minWidth: 200 }}>
+                        <Field.Root>
+                          <Field.Label>Schedule type</Field.Label>
+                          <SingleSelect value={ep.scheduleType} onChange={(v) => updateEp({ scheduleType: v })}>
+                            {SCHEDULE_TYPE_OPTIONS.map((o) => <SingleSelectOption key={o.value} value={o.value}>{o.label}</SingleSelectOption>)}
+                          </SingleSelect>
+                        </Field.Root>
+                      </Box>
+                      {(ep.scheduleType === 'interval' || ep.scheduleType === 'timeout') && (
+                        <Box style={{ minWidth: 180 }}>
+                          <Field.Root>
+                            <Field.Label>Interval (minutes)</Field.Label>
+                            <NumberInput value={ep.scheduleInterval || 60} onValueChange={(v) => updateEp({ scheduleInterval: v })} min={1} />
+                          </Field.Root>
+                        </Box>
+                      )}
+                      {ep.scheduleType === 'cron' && (
+                        <Box style={{ flex: 1, minWidth: 200 }}>
+                          <Field.Root>
+                            <Field.Label>Cron expression</Field.Label>
+                            <TextInput value={ep.cronExpression || ''} onChange={(e) => updateEp({ cronExpression: e.target.value })} placeholder="0 */2 * * *" />
+                          </Field.Root>
+                        </Box>
+                      )}
+                    </>
+                  )}
+                </Flex>
+                <Flex alignItems="center" gap={2}>
+                  <Switch checked={!!ep.enabled} onCheckedChange={(v) => updateEp({ enabled: v })} />
+                  <Typography>Enabled</Typography>
+                </Flex>
+              </Flex>
+            </Dialog.Body>
+            <Dialog.Footer>
+              <Dialog.Cancel>
+                <Button variant="tertiary">Cancel</Button>
+              </Dialog.Cancel>
+              <Button onClick={handleSaveProfile} loading={saving} disabled={saving}>
+                {editMode === 'create' ? 'Create' : 'Save'}
+              </Button>
+            </Dialog.Footer>
+          </Dialog.Content>
+        </Dialog.Root>
       )}
-
-      {/* Actions */}
-      <Box background="neutral0" padding={4} hasRadius shadow="tableShadow" marginBottom={4}>
-        <Flex gap={2} wrap="wrap">
-          <Button onClick={handleSave} loading={saving} disabled={saving}>Save settings</Button>
-          <Button variant="secondary" onClick={handleTest} loading={testing} disabled={testing || isDisabled}>
-            Test connection
-          </Button>
-          <Button variant="secondary" onClick={() => handleRun(true)} loading={running} disabled={running || isDisabled}>
-            Dry run
-          </Button>
-          <Button variant="default" onClick={() => handleRun(false)} loading={running} disabled={running || isDisabled}>
-            Run media sync now
-          </Button>
-        </Flex>
-      </Box>
-
-      {/* Status */}
-      <Box background="neutral0" padding={4} hasRadius shadow="tableShadow" marginBottom={4}>
-        <Typography variant="delta">Status</Typography>
-        <Box paddingTop={2}>
-          <Flex gap={2} wrap="wrap" alignItems="center">
-            <Badge active={!!status?.running}>{status?.running ? 'Running' : 'Idle'}</Badge>
-            <Typography variant="pi" textColor="neutral600">
-              Last run: {status?.lastRunAt ? new Date(status.lastRunAt).toLocaleString() : 'never'}
-            </Typography>
-          </Flex>
-        </Box>
-        {status?.lastResult && (
-          <Box paddingTop={3}>
-            <Divider />
-            <Box paddingTop={2}>
-              <Typography variant="pi" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                {JSON.stringify(status.lastResult, null, 2)}
-              </Typography>
-            </Box>
-          </Box>
-        )}
-        {runResult && (
-          <Box paddingTop={3}>
-            <Divider />
-            <Box paddingTop={2}>
-              <Typography variant="sigma">Last run output</Typography>
-              <Typography variant="pi" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                {JSON.stringify(runResult, null, 2)}
-              </Typography>
-            </Box>
-          </Box>
-        )}
-      </Box>
     </Box>
   );
 };

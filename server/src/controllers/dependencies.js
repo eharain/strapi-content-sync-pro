@@ -12,8 +12,10 @@ module.exports = ({ strapi }) => ({
       const dependencyResolver = strapi.plugin(PLUGIN_ID).service('dependencyResolver');
       const syncConfig = strapi.plugin(PLUGIN_ID).service('syncConfig');
 
-      const config = await syncConfig.get();
-      const enabledTypes = config.enabledContentTypes || [];
+      const config = await syncConfig.getSyncConfig();
+      const enabledTypes = (config.contentTypes || [])
+        .filter((ct) => ct.enabled)
+        .map((ct) => ct.uid);
 
       const allDependencies = {};
 

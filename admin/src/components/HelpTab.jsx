@@ -529,12 +529,70 @@ http://localhost:1337</CodeBlock>
               </Typography>
             </HelpSection>
 
-            <HelpSection title="Media Sync Overview">
+            <HelpSection title="Media Sync Profiles">
               <Typography variant="omega">
-                The <strong>Media</strong> tab syncs files from <code>plugin::upload.file</code>
-                between two Strapi instances. Choose <strong>URL</strong>, <strong>rsync</strong>, or
-                <strong> Disabled</strong>. Direction can be push, pull, or both. Every run is
-                paginated and runs file transfers with configurable concurrency.
+                Media sync now uses the same <strong>profile-based model</strong> as content-type sync.
+                Each media profile defines:
+              </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><Typography variant="omega"><strong>Strategy</strong> - URL (HTTP), rsync (file copy), or Disabled</Typography></li>
+                <li><Typography variant="omega"><strong>Direction</strong> - Push, Pull, or Both</Typography></li>
+                <li><Typography variant="omega"><strong>Conflict Strategy</strong> - Latest Wins, Local Wins, or Remote Wins</Typography></li>
+                <li><Typography variant="omega"><strong>Sync Scope</strong> - DB rows (metadata), file bytes, or both</Typography></li>
+                <li><Typography variant="omega"><strong>File Type Filters</strong> - Include/exclude by MIME type and filename patterns</Typography></li>
+                <li><Typography variant="omega"><strong>Execution Settings</strong> - On Demand, Scheduled (interval/timeout/cron/external), or Live</Typography></li>
+              </ul>
+              <Typography variant="omega" paddingTop={2}>
+                Only <strong>one media profile can be active</strong> at a time. The active profile is used
+                when running "Sync All Active" or when scheduled/live execution triggers.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="Default Profiles & File Types">
+              <Typography variant="omega">
+                Three default profiles are auto-generated on first use:
+              </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><Typography variant="omega"><strong>Full Push (Media)</strong> - Push all, local wins</Typography></li>
+                <li><Typography variant="omega"><strong>Full Pull (Media)</strong> - Pull all, remote wins</Typography></li>
+                <li><Typography variant="omega"><strong>Bidirectional (Media)</strong> - Both ways, latest wins (active by default)</Typography></li>
+              </ul>
+              <Typography variant="omega" paddingTop={2}>
+                All default profiles include common file types:
+              </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><Typography variant="omega"><strong>Images</strong> - All image/* MIME types</Typography></li>
+                <li><Typography variant="omega"><strong>Videos</strong> - MP4, WebM, AVI, QuickTime (MOV), Matroska (MKV), OGG, 3GPP</Typography></li>
+                <li><Typography variant="omega"><strong>Documents</strong> - PDF, Word (DOC/DOCX), Excel (XLS/XLSX), PowerPoint (PPT/PPTX), OpenDocument (ODT/ODS), CSV, Plain Text</Typography></li>
+              </ul>
+              <Typography variant="pi" textColor="neutral600" paddingTop={2}>
+                You can customize MIME filters per profile to include or exclude specific file types.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="Sync Scope: DB Rows vs File Bytes">
+              <Typography variant="omega">
+                Each profile can sync two distinct aspects of media:
+              </Typography>
+              <Box background="neutral100" padding={4} hasRadius marginTop={2} marginBottom={2}>
+                <Typography variant="sigma" textColor="neutral800">DB Rows (Metadata)</Typography>
+                <Typography variant="omega" paddingTop={1}>
+                  Syncs the <code>plugin::upload.file</code> table data: name, caption, alternative text,
+                  MIME type, size, dimensions, formats, folder path, etc. This ensures both instances
+                  have matching upload records even if file bytes are managed separately.
+                </Typography>
+              </Box>
+              <Box background="neutral100" padding={4} hasRadius marginBottom={2}>
+                <Typography variant="sigma" textColor="neutral800">File Bytes (Assets)</Typography>
+                <Typography variant="omega" paddingTop={1}>
+                  Syncs the actual media files via the chosen strategy (URL download/upload or rsync).
+                  Enable this when both instances need the physical files, not just database references.
+                </Typography>
+              </Box>
+              <Typography variant="pi" textColor="warning600">
+                For complete media synchronization, enable <strong>both</strong> DB rows and file bytes.
+                If you only need metadata references (e.g., both sides use the same S3 bucket), you can
+                sync DB rows only.
               </Typography>
             </HelpSection>
 
@@ -570,45 +628,35 @@ http://localhost:1337</CodeBlock>
                   Example (push):    rsync -avz --delete-after ./public/uploads/ deploy@cms.example.com:/srv/strapi/public/uploads
                 </Typography>
               </Box>
-              <Typography variant="pi" textColor="neutral600" paddingTop={1}>
-                On Windows you can either use <code>rsync</code> via WSL/MSYS, a compatible binary,
-                or switch to the URL strategy. The same SSH port / identity file fields are supported.
-              </Typography>
               <Typography variant="pi" textColor="warning600" paddingTop={2}>
-                <strong>Caveat:</strong> rsync only copies file bytes. It does NOT update the
-                <code> plugin::upload.file</code> database rows on the destination. For a full migration
-                where the destination also needs DB rows, either (a) run the URL strategy, or (b)
-                combine rsync with a manual DB/table copy. The URL strategy is recommended when you
-                need the upload table on both sides to stay in sync automatically.
+                <strong>Note:</strong> rsync only copies file bytes. Enable <strong>DB rows sync</strong> on
+                the profile as well if the destination needs matching <code>plugin::upload.file</code> records.
               </Typography>
             </HelpSection>
 
-            <HelpSection title="Filters & pagination">
+            <HelpSection title="Media Execution Settings">
               <Typography variant="omega">
-                Every strategy honors include/exclude filename patterns (glob <code>*</code>/<code>?</code>
-                for URL, <code>--include</code>/<code>--exclude</code> for rsync). URL strategy
-                additionally supports include/exclude MIME prefixes (e.g. <code>image/</code>,
-                <code>application/pdf</code>). Page size (1-500) controls how many files are listed
-                per request; batch concurrency (1-10) controls parallel transfers per page.
+                Each media profile has its own execution settings, identical to content-type profiles:
+              </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><Typography variant="omega"><strong>On Demand</strong> - Manual trigger via "Run" button or API</Typography></li>
+                <li><Typography variant="omega"><strong>Scheduled</strong> - Interval, Timeout, Cron, or External scheduler</Typography></li>
+                <li><Typography variant="omega"><strong>Live</strong> - Triggers on upload file changes (create/update/delete)</Typography></li>
+              </ul>
+              <Typography variant="omega" paddingTop={2}>
+                For per-profile execution: <code>POST /api/strapi-to-strapi-data-sync/media-sync/profiles/:id/run</code>
+              </Typography>
+              <Typography variant="omega" paddingTop={1}>
+                For all active profiles: <code>POST /api/strapi-to-strapi-data-sync/media-sync/run-active</code>
               </Typography>
             </HelpSection>
 
             <HelpSection title="Dry run & testing">
               <Typography variant="omega">
-                Toggle <strong>Dry run</strong> to list what would change without transferring any
+                Toggle <strong>Dry run</strong> on a profile to list what would change without transferring any
                 bytes (rsync passes <code>--dry-run</code>; URL strategy skips the actual
                 upload/download). Use <strong>Test connection</strong> to quickly verify the remote
                 token (URL) or the rsync binary (rsync) before a real run.
-              </Typography>
-            </HelpSection>
-
-            <HelpSection title="Scheduling media sync">
-              <Typography variant="omega">
-                The media run endpoint is <code>POST /api/strapi-to-strapi-data-sync/media-sync/run</code>.
-                Schedule it from any external scheduler the same way as content sync (Linux cron,
-                Windows Task Scheduler, systemd timer, Kubernetes CronJob, GitHub Actions). See the
-                <strong> Sync Execution</strong> tab for concrete examples — they apply verbatim, just
-                change the URL path.
               </Typography>
             </HelpSection>
           </Box>
