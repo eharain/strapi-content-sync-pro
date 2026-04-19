@@ -38,6 +38,7 @@ const ContentTypesTab = () => {
       setProfiles(profilesRes.data.data || []);
     } catch (err) {
       console.error('Failed to load data', err);
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to load data' });
     } finally {
       setLoading(false);
     }
@@ -85,7 +86,7 @@ const ContentTypesTab = () => {
     } catch (err) {
       // Revert on error
       setEnabledTypes(enabledTypes);
-      setMessage({ type: 'danger', text: 'Failed to update configuration' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to update configuration' });
     }
   };
 

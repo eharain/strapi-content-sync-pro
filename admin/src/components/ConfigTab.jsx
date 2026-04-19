@@ -116,6 +116,7 @@ const ConfigTab = () => {
       }
     } catch (err) {
       console.error('Failed to fetch config', err);
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to load configuration' });
     } finally {
       setLoading(false);
     }
@@ -133,8 +134,8 @@ const ConfigTab = () => {
 
       await post(`/${PLUGIN_ID}/config`, payload);
       setMessage({ type: 'success', text: 'Connection configuration saved' });
-    } catch {
-      setMessage({ type: 'danger', text: 'Failed to save configuration' });
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to save configuration' });
     } finally {
       setSaving(false);
     }

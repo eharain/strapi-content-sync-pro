@@ -39,6 +39,7 @@ module.exports = ({ strapi }) => {
       const configService = plugin().service('config');
       const syncConfigService = plugin().service('syncConfig');
       const syncProfilesService = plugin().service('syncProfiles');
+      const executionService = plugin().service('syncExecution');
 
       const remoteConfig = await configService.getConfig({ safe: false });
       if (!remoteConfig || !remoteConfig.baseUrl) {
@@ -51,6 +52,11 @@ module.exports = ({ strapi }) => {
       if (enabledTypes.length === 0) {
         throw new Error('No content types configured for sync');
       }
+
+      // Pagination — remote + local fetches are chunked to keep memory bounded
+      // for large datasets. Page size is a global setting tunable in the Sync tab.
+      const globalExec = (await executionService.getGlobalSettings?.()) || {};
+      const pageSize = Number(globalExec.syncPageSize) || 100;
 
       const timestamps = await getLastSyncTimestamps();
       const conflictStrategy = syncConfig.conflictStrategy || 'latest';
@@ -65,8 +71,12 @@ module.exports = ({ strapi }) => {
         const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
 
         try {
-          const localRecords = await fetchLocalRecords(strapi, uid, { fields, lastSyncAt });
-          const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields, lastSyncAt });
+          // Both sides are fetched in pages of `pageSize` records under the
+          // hood (see utils/fetcher.js). We aggregate per content-type because
+          // the comparator needs the full set to diff by syncId, but each
+          // network/DB call still only returns a bounded chunk.
+          const localRecords = await fetchLocalRecords(strapi, uid, { fields, lastSyncAt, pageSize });
+          const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields, lastSyncAt, pageSize });
 
           const diff = compareRecords(localRecords, remoteRecords, {
             direction,

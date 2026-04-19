@@ -163,7 +163,7 @@ const SyncProfilesTab = () => {
       setSelectedProfiles([]);
       loadData();
     } catch (err) {
-      setMessage({ type: 'danger', text: 'Failed to activate profiles' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to activate profiles' });
     }
   };
 
@@ -177,7 +177,7 @@ const SyncProfilesTab = () => {
       setSelectedProfiles([]);
       loadData();
     } catch (err) {
-      setMessage({ type: 'danger', text: 'Failed to deactivate profiles' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to deactivate profiles' });
     }
   };
 
@@ -192,7 +192,7 @@ const SyncProfilesTab = () => {
       setSelectedProfiles([]);
       loadData();
     } catch (err) {
-      setMessage({ type: 'danger', text: 'Failed to delete profiles' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to delete profiles' });
     }
   };
 
@@ -213,7 +213,7 @@ const SyncProfilesTab = () => {
       setEnabledTypes(config.contentTypes?.filter(ct => ct.enabled).map(ct => ct.uid) || []);
     } catch (err) {
       console.error('Failed to load data', err);
-      setMessage({ type: 'danger', text: 'Failed to load profiles' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to load profiles' });
     } finally {
       setLoading(false);
     }
@@ -368,7 +368,7 @@ const SyncProfilesTab = () => {
       setMessage({ type: 'success', text: 'Profile deleted' });
       loadData();
     } catch (err) {
-      setMessage({ type: 'danger', text: 'Failed to delete profile' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to delete profile' });
     }
   };
 
@@ -378,7 +378,7 @@ const SyncProfilesTab = () => {
       setMessage({ type: 'success', text: `Activated: ${profile.name}` });
       loadData();
     } catch (err) {
-      setMessage({ type: 'danger', text: 'Failed to activate profile' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to activate profile' });
     }
   };
 

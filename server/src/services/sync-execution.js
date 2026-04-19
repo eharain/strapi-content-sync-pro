@@ -42,7 +42,7 @@ const STORE_KEY = 'sync-execution-settings';
  *              previous run completes, so overlapping runs are impossible. Best
  *              when individual syncs can take a long time.
  * - cron     : Uses Strapi's built-in cron (node-schedule). Supports full cron
- *              expressions (e.g. "0 */2 * * *"). Persists the next-run wall-
+ *              expressions (e.g. "0 *\/2 * * *"). Persists the next-run wall-
  *              clock time and survives short pauses reliably. Recommended for
  *              larger datasets and production systems.
  * - external : The plugin registers NO in-process schedule. Instead, an
@@ -67,6 +67,9 @@ module.exports = ({ strapi }) => {
     retryOnFailure: true,
     retryAttempts: 3,
     retryDelayMs: 5000,
+    // Pagination for content-type sync fetches (local + remote). Larger pages
+    // are faster but use more memory per chunk. 100 is a safe default.
+    syncPageSize: 100,
   };
 
   const VALID_EXECUTION_MODES = ['on_demand', 'scheduled', 'live'];

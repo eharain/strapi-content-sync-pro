@@ -46,6 +46,7 @@ export const HelpTab = () => {
           <Tabs.Trigger value="content-types">Content Types</Tabs.Trigger>
           <Tabs.Trigger value="sync-profiles">Sync Profiles</Tabs.Trigger>
           <Tabs.Trigger value="execution">Sync Execution</Tabs.Trigger>
+          <Tabs.Trigger value="media">Media</Tabs.Trigger>
           <Tabs.Trigger value="enforcement">Enforcement</Tabs.Trigger>
           <Tabs.Trigger value="alerts">Alerts</Tabs.Trigger>
           <Tabs.Trigger value="troubleshooting">Troubleshooting</Tabs.Trigger>
@@ -402,9 +403,9 @@ http://localhost:1337</CodeBlock>
                 <Typography variant="omega" paddingTop={1}><strong>Windows Task Scheduler</strong> (PowerShell):</Typography>
                 <Box background="neutral0" padding={3} hasRadius marginTop={1} marginBottom={2}>
                   <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
-                    $a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-Command "Invoke-RestMethod -Method Post -Uri https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID -Headers @{Authorization=''Bearer ''+$env:SYNC_TOKEN}"'<br />
-                    $t = New-ScheduledTaskTrigger -Daily -At 2am<br />
-                    Register-ScheduledTask -TaskName "StrapiDataSync" -Action $a -Trigger $t
+                    {"$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-Command \"Invoke-RestMethod -Method Post -Uri https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID -Headers @{Authorization=''Bearer ''+$env:SYNC_TOKEN}\"'"}<br />
+                    {'$t = New-ScheduledTaskTrigger -Daily -At 2am'}<br />
+                    {'Register-ScheduledTask -TaskName "StrapiDataSync" -Action $a -Trigger $t'}
                   </Typography>
                 </Box>
                 <Typography variant="omega" paddingTop={1}><strong>systemd timer</strong> (unit + timer):</Typography>
@@ -507,6 +508,108 @@ http://localhost:1337</CodeBlock>
                 <li><Typography variant="omega"><strong>Next Run</strong> - When scheduled sync will run next</Typography></li>
                 <li><Typography variant="omega"><strong>Status</strong> - Running or Idle</Typography></li>
               </ul>
+            </HelpSection>
+          </Box>
+        </Tabs.Content>
+
+        {/* Media Tab */}
+        <Tabs.Content value="media">
+          <Box paddingTop={4}>
+            <HelpSection title="Pagination for Large Datasets">
+              <Typography variant="omega">
+                Content-type sync is paginated end-to-end. The global <strong>Page size</strong>
+                (<code>syncPageSize</code>, default 100) controls how many records the local Document Service and
+                the remote REST API return per request. Both sides fetch in the same page-size chunks
+                and records are processed in bounded memory, so syncing millions of entries does not
+                spike memory.
+              </Typography>
+              <Typography variant="omega" paddingTop={2}>
+                Tune it from the <strong>Sync</strong> tab's global execution settings. Larger pages
+                are faster but use more memory per chunk; smaller pages are safer on constrained hosts.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="Media Sync Overview">
+              <Typography variant="omega">
+                The <strong>Media</strong> tab syncs files from <code>plugin::upload.file</code>
+                between two Strapi instances. Choose <strong>URL</strong>, <strong>rsync</strong>, or
+                <strong> Disabled</strong>. Direction can be push, pull, or both. Every run is
+                paginated and runs file transfers with configurable concurrency.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="URL strategy (HTTP)">
+              <Typography variant="omega">
+                Works with any upload provider on either side (local, S3, Cloudinary, ...). The plugin
+                lists files via the remote <code>/api/upload/files</code> endpoint, downloads bytes via
+                the file's URL, and re-uploads them with <code>POST /api/upload</code> using the
+                configured API token. Files are deduped by <code>hash + name</code>, and optionally
+                skipped when <code>size</code> and <code>hash</code> match.
+              </Typography>
+              <Box background="neutral0" padding={3} hasRadius marginTop={2}>
+                <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
+                  Required remote API token permissions: <strong>Upload: find, findOne, upload</strong>.
+                </Typography>
+              </Box>
+              <Typography variant="pi" textColor="neutral600" paddingTop={2}>
+                Best for: small/medium libraries, cross-provider setups, environments without SSH.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="rsync strategy (file-level copy)">
+              <Typography variant="omega">
+                The plugin spawns the <code>rsync</code> binary on the host running Strapi. Both sides
+                must use the local upload provider and the paths must be reachable (SSH target or a
+                locally-mounted share). The plugin does NOT manage SSH keys; configure them on the host.
+              </Typography>
+              <Box background="neutral0" padding={3} hasRadius marginTop={2} marginBottom={2}>
+                <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
+                  Local media path:  ./public/uploads<br />
+                  Remote media path: deploy@cms.example.com:/srv/strapi/public/uploads<br />
+                  rsync args:        -avz --delete-after<br />
+                  Example (push):    rsync -avz --delete-after ./public/uploads/ deploy@cms.example.com:/srv/strapi/public/uploads
+                </Typography>
+              </Box>
+              <Typography variant="pi" textColor="neutral600" paddingTop={1}>
+                On Windows you can either use <code>rsync</code> via WSL/MSYS, a compatible binary,
+                or switch to the URL strategy. The same SSH port / identity file fields are supported.
+              </Typography>
+              <Typography variant="pi" textColor="warning600" paddingTop={2}>
+                <strong>Caveat:</strong> rsync only copies file bytes. It does NOT update the
+                <code> plugin::upload.file</code> database rows on the destination. For a full migration
+                where the destination also needs DB rows, either (a) run the URL strategy, or (b)
+                combine rsync with a manual DB/table copy. The URL strategy is recommended when you
+                need the upload table on both sides to stay in sync automatically.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="Filters & pagination">
+              <Typography variant="omega">
+                Every strategy honors include/exclude filename patterns (glob <code>*</code>/<code>?</code>
+                for URL, <code>--include</code>/<code>--exclude</code> for rsync). URL strategy
+                additionally supports include/exclude MIME prefixes (e.g. <code>image/</code>,
+                <code>application/pdf</code>). Page size (1-500) controls how many files are listed
+                per request; batch concurrency (1-10) controls parallel transfers per page.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="Dry run & testing">
+              <Typography variant="omega">
+                Toggle <strong>Dry run</strong> to list what would change without transferring any
+                bytes (rsync passes <code>--dry-run</code>; URL strategy skips the actual
+                upload/download). Use <strong>Test connection</strong> to quickly verify the remote
+                token (URL) or the rsync binary (rsync) before a real run.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="Scheduling media sync">
+              <Typography variant="omega">
+                The media run endpoint is <code>POST /api/strapi-to-strapi-data-sync/media-sync/run</code>.
+                Schedule it from any external scheduler the same way as content sync (Linux cron,
+                Windows Task Scheduler, systemd timer, Kubernetes CronJob, GitHub Actions). See the
+                <strong> Sync Execution</strong> tab for concrete examples — they apply verbatim, just
+                change the URL path.
+              </Typography>
             </HelpSection>
           </Box>
         </Tabs.Content>

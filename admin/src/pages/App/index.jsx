@@ -8,12 +8,14 @@ import { SyncTab } from '../../components/SyncTab';
 import { LogsTab } from '../../components/LogsTab';
 import { HelpTab } from '../../components/HelpTab';
 import { SyncProfilesTab } from '../../components/SyncProfilesTab';
+import { MediaTab } from '../../components/MediaTab';
 
 const TABS = [
   { key: 'config', label: 'Configuration' },
   { key: 'content-types', label: 'Content Types' },
   { key: 'sync-profiles', label: 'Sync Profiles' },
   { key: 'sync', label: 'Sync' },
+  { key: 'media', label: 'Media' },
   { key: 'logs', label: 'Logs' },
   { key: 'help', label: 'Help' },
 ];
@@ -46,6 +48,7 @@ const HomePage = () => {
         {activeTab === 'content-types' && <ContentTypesTab />}
         {activeTab === 'sync-profiles' && <SyncProfilesTab />}
         {activeTab === 'sync' && <SyncTab />}
+        {activeTab === 'media' && <MediaTab />}
         {activeTab === 'logs' && <LogsTab />}
         {activeTab === 'help' && <HelpTab />}
 

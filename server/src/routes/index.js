@@ -72,6 +72,13 @@ const adminRoutes = [
   { method: 'POST', path: '/alerts/test/:channel', handler: 'alerts.testChannel',    config: { policies: [] } },
   { method: 'GET',  path: '/alerts/stats',         handler: 'alerts.getStats',       config: { policies: [] } },
 
+  // Media sync
+  { method: 'GET',  path: '/media-sync/settings', handler: 'syncMedia.getSettings',    config: { policies: [] } },
+  { method: 'PUT',  path: '/media-sync/settings', handler: 'syncMedia.updateSettings', config: { policies: [] } },
+  { method: 'GET',  path: '/media-sync/status',   handler: 'syncMedia.getStatus',      config: { policies: [] } },
+  { method: 'POST', path: '/media-sync/test',     handler: 'syncMedia.test',           config: { policies: [] } },
+  { method: 'POST', path: '/media-sync/run',      handler: 'syncMedia.run',            config: { policies: [] } },
+
   // Dependencies
   { method: 'GET',  path: '/dependencies/all',             handler: 'dependencies.analyzeAll',   config: { policies: [] } },
   { method: 'GET',  path: '/dependencies/:uid',            handler: 'dependencies.analyze',      config: { policies: [] } },

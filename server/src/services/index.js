@@ -10,6 +10,7 @@ const syncProfiles = require('./sync-profiles');
 const syncExecution = require('./sync-execution');
 const dependencyResolver = require('./dependency-resolver');
 const syncEnforcement = require('./sync-enforcement');
+const syncMedia = require('./sync-media');
 const alerts = require('./alerts');
 
 module.exports = {
@@ -23,6 +24,7 @@ module.exports = {
   syncExecution,
   dependencyResolver,
   syncEnforcement,
+  syncMedia,
   alerts,
 };
 

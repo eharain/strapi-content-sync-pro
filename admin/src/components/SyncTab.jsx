@@ -107,7 +107,7 @@ const SyncTab = () => {
       }
     } catch (err) {
       console.error('Failed to load sync data', err);
-      setMessage({ type: 'danger', text: 'Failed to load sync data' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to load sync data' });
     } finally {
       setLoading(false);
     }
@@ -188,7 +188,7 @@ const SyncTab = () => {
       setOrderModified(false);
       setMessage({ type: 'success', text: 'Execution order saved' });
     } catch (err) {
-      setMessage({ type: 'danger', text: 'Failed to save execution order' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to save execution order' });
     }
   };
 
@@ -337,7 +337,7 @@ const SyncTab = () => {
       setSelectedProfile(profileId);
       setSettingsModalOpen(true);
     } catch (err) {
-      setMessage({ type: 'danger', text: 'Failed to load execution settings' });
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to load execution settings' });
     }
   };
 
