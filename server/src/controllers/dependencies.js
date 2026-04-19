@@ -4,6 +4,36 @@ const PLUGIN_ID = 'strapi-to-strapi-data-sync';
 
 module.exports = ({ strapi }) => ({
   /**
+   * GET /dependencies/all
+   * Get dependency analysis for all enabled content types
+   */
+  async analyzeAll(ctx) {
+    try {
+      const dependencyResolver = strapi.plugin(PLUGIN_ID).service('dependencyResolver');
+      const syncConfig = strapi.plugin(PLUGIN_ID).service('syncConfig');
+
+      const config = await syncConfig.get();
+      const enabledTypes = config.enabledContentTypes || [];
+
+      const allDependencies = {};
+
+      for (const uid of enabledTypes) {
+        try {
+          const analysis = dependencyResolver.analyzeContentType(uid);
+          allDependencies[uid] = analysis.relations || [];
+        } catch (err) {
+          // Skip if content type doesn't exist
+          allDependencies[uid] = [];
+        }
+      }
+
+      ctx.body = { data: allDependencies };
+    } catch (err) {
+      ctx.throw(500, err.message);
+    }
+  },
+
+  /**
    * GET /dependencies/:uid
    * Get dependency analysis for a content type
    */

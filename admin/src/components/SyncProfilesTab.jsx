@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Flex,
@@ -21,7 +21,7 @@ import {
   Td,
   Tabs,
 } from '@strapi/design-system';
-import { Pencil, Trash, Plus, Check } from '@strapi/icons';
+import { Pencil, Trash, Plus, Check, CaretUp, CaretDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
 const PLUGIN_ID = 'strapi-to-strapi-data-sync';
@@ -60,6 +60,13 @@ const SyncProfilesTab = () => {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
 
+  // Sorting state
+  const [sortField, setSortField] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  // Selection state for bulk operations
+  const [selectedProfiles, setSelectedProfiles] = useState([]);
+
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(null);
@@ -76,6 +83,118 @@ const SyncProfilesTab = () => {
   });
   const [schemaFields, setSchemaFields] = useState([]);
   const [loadingSchema, setLoadingSchema] = useState(false);
+
+  // Sorted profiles
+  const sortedProfiles = useMemo(() => {
+    const sorted = [...profiles].sort((a, b) => {
+      let aVal = a[sortField];
+      let bVal = b[sortField];
+
+      // Handle content type display name
+      if (sortField === 'contentType') {
+        const ctA = contentTypes.find(ct => ct.uid === a.contentType);
+        const ctB = contentTypes.find(ct => ct.uid === b.contentType);
+        aVal = ctA?.displayName || a.contentType;
+        bVal = ctB?.displayName || b.contentType;
+      }
+
+      // Handle boolean for isActive
+      if (sortField === 'isActive') {
+        aVal = a.isActive ? 1 : 0;
+        bVal = b.isActive ? 1 : 0;
+      }
+
+      if (typeof aVal === 'string') {
+        return sortDirection === 'asc' 
+          ? aVal.localeCompare(bVal)
+          : bVal.localeCompare(aVal);
+      }
+      return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+    return sorted;
+  }, [profiles, sortField, sortDirection, contentTypes]);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const SortableHeader = ({ field, children }) => (
+    <Th 
+      onClick={() => handleSort(field)} 
+      style={{ cursor: 'pointer', userSelect: 'none' }}
+    >
+      <Flex alignItems="center" gap={1}>
+        <Typography variant="sigma">{children}</Typography>
+        {sortField === field && (
+          sortDirection === 'asc' ? <CaretUp /> : <CaretDown />
+        )}
+      </Flex>
+    </Th>
+  );
+
+  const handleSelectProfile = (profileId) => {
+    setSelectedProfiles(prev => 
+      prev.includes(profileId)
+        ? prev.filter(id => id !== profileId)
+        : [...prev, profileId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedProfiles.length === profiles.length) {
+      setSelectedProfiles([]);
+    } else {
+      setSelectedProfiles(profiles.map(p => p.id));
+    }
+  };
+
+  const handleBulkActivate = async () => {
+    if (selectedProfiles.length === 0) return;
+    try {
+      for (const profileId of selectedProfiles) {
+        await put(`/${PLUGIN_ID}/sync-profiles/${profileId}`, { isActive: true });
+      }
+      setMessage({ type: 'success', text: `Activated ${selectedProfiles.length} profiles` });
+      setSelectedProfiles([]);
+      loadData();
+    } catch (err) {
+      setMessage({ type: 'danger', text: 'Failed to activate profiles' });
+    }
+  };
+
+  const handleBulkDeactivate = async () => {
+    if (selectedProfiles.length === 0) return;
+    try {
+      for (const profileId of selectedProfiles) {
+        await put(`/${PLUGIN_ID}/sync-profiles/${profileId}`, { isActive: false });
+      }
+      setMessage({ type: 'success', text: `Deactivated ${selectedProfiles.length} profiles` });
+      setSelectedProfiles([]);
+      loadData();
+    } catch (err) {
+      setMessage({ type: 'danger', text: 'Failed to deactivate profiles' });
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedProfiles.length === 0) return;
+    if (!window.confirm(`Delete ${selectedProfiles.length} selected profiles?`)) return;
+    try {
+      for (const profileId of selectedProfiles) {
+        await del(`/${PLUGIN_ID}/sync-profiles/${profileId}`);
+      }
+      setMessage({ type: 'success', text: `Deleted ${selectedProfiles.length} profiles` });
+      setSelectedProfiles([]);
+      loadData();
+    } catch (err) {
+      setMessage({ type: 'danger', text: 'Failed to delete profiles' });
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -301,6 +420,29 @@ const SyncProfilesTab = () => {
         </Box>
       )}
 
+      {/* Bulk Actions Bar */}
+      {selectedProfiles.length > 0 && (
+        <Box paddingTop={4}>
+          <Flex gap={2} alignItems="center" background="neutral100" padding={3} hasRadius>
+            <Typography variant="omega" fontWeight="bold">
+              {selectedProfiles.length} selected
+            </Typography>
+            <Button variant="success" size="S" onClick={handleBulkActivate}>
+              Activate Selected
+            </Button>
+            <Button variant="secondary" size="S" onClick={handleBulkDeactivate}>
+              Deactivate Selected
+            </Button>
+            <Button variant="danger" size="S" onClick={handleBulkDelete}>
+              Delete Selected
+            </Button>
+            <Button variant="tertiary" size="S" onClick={() => setSelectedProfiles([])}>
+              Clear Selection
+            </Button>
+          </Flex>
+        </Box>
+      )}
+
       <Box paddingTop={4}>
         {profiles.length === 0 ? (
           <Box padding={6} background="neutral0" hasRadius>
@@ -313,18 +455,33 @@ const SyncProfilesTab = () => {
           <Table>
             <Thead>
               <Tr>
-                <Th><Typography variant="sigma">Name</Typography></Th>
-                <Th><Typography variant="sigma">Content Type</Typography></Th>
-                <Th><Typography variant="sigma">Direction</Typography></Th>
-                <Th><Typography variant="sigma">Conflict</Typography></Th>
-                <Th><Typography variant="sigma">Mode</Typography></Th>
-                <Th><Typography variant="sigma">Status</Typography></Th>
+                <Th>
+                  <Checkbox
+                    checked={selectedProfiles.length === profiles.length && profiles.length > 0}
+                    indeterminate={selectedProfiles.length > 0 && selectedProfiles.length < profiles.length}
+                    onCheckedChange={handleSelectAll}
+                    aria-label="Select all profiles"
+                  />
+                </Th>
+                <SortableHeader field="name">Name</SortableHeader>
+                <SortableHeader field="contentType">Content Type</SortableHeader>
+                <SortableHeader field="direction">Direction</SortableHeader>
+                <SortableHeader field="conflictStrategy">Conflict</SortableHeader>
+                <SortableHeader field="isSimple">Mode</SortableHeader>
+                <SortableHeader field="isActive">Status</SortableHeader>
                 <Th><Typography variant="sigma">Actions</Typography></Th>
               </Tr>
             </Thead>
             <Tbody>
-              {profiles.map((profile) => (
+              {sortedProfiles.map((profile) => (
                 <Tr key={profile.id}>
+                  <Td>
+                    <Checkbox
+                      checked={selectedProfiles.includes(profile.id)}
+                      onCheckedChange={() => handleSelectProfile(profile.id)}
+                      aria-label={`Select ${profile.name}`}
+                    />
+                  </Td>
                   <Td><Typography fontWeight="bold">{profile.name}</Typography></Td>
                   <Td><Typography textColor="neutral600">{getContentTypeName(profile.contentType)}</Typography></Td>
                   <Td><Badge>{getDirectionLabel(profile.direction)}</Badge></Td>
@@ -338,9 +495,7 @@ const SyncProfilesTab = () => {
                     {profile.isActive ? (
                       <Badge active>Active</Badge>
                     ) : (
-                      <Button variant="ghost" size="S" onClick={() => handleActivate(profile)}>
-                        Activate
-                      </Button>
+                      <Badge>Inactive</Badge>
                     )}
                   </Td>
                   <Td>
