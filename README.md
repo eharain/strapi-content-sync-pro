@@ -5,6 +5,45 @@ A powerful Strapi v5 plugin to copy, migrate, and live-sync content, media, and 
 [![npm version](https://badge.fury.io/js/strapi-content-sync-pro.svg)](https://www.npmjs.com/package/strapi-content-sync-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## Video
+
+Plugin intro: https://youtu.be/hr3dD6dLgLQ
+
+<a href="https://youtu.be/hr3dD6dLgLQ" target="_blank" rel="noopener noreferrer">
+  <img src="docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro — watch the intro video" width="100%" />
+</a>
+
+## Screenshots
+
+<details>
+  <summary>View screenshots</summary>
+
+  <br />
+
+  <table>
+    <tr>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro - screenshot 1" width="100%" /></td>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20160558.png" alt="Content Sync Pro - screenshot 2" width="100%" /></td>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20175903.png" alt="Content Sync Pro - screenshot 3" width="100%" /></td>
+    </tr>
+    <tr>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20175931.png" alt="Content Sync Pro - screenshot 4" width="100%" /></td>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180001.png" alt="Content Sync Pro - screenshot 5" width="100%" /></td>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180041.png" alt="Content Sync Pro - screenshot 6" width="100%" /></td>
+    </tr>
+    <tr>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180116.png" alt="Content Sync Pro - screenshot 7" width="100%" /></td>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180135.png" alt="Content Sync Pro - screenshot 8" width="100%" /></td>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180202.png" alt="Content Sync Pro - screenshot 9" width="100%" /></td>
+    </tr>
+    <tr>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180228.png" alt="Content Sync Pro - screenshot 10" width="100%" /></td>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180251.png" alt="Content Sync Pro - screenshot 11" width="100%" /></td>
+      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180301.png" alt="Content Sync Pro - screenshot 12" width="100%" /></td>
+    </tr>
+  </table>
+</details>
+
 ## Features
 
 - **Bi-directional Content Sync** - Push, pull, or sync both ways (Local wins, Remote wins, or Latest wins).
