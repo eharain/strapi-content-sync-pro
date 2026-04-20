@@ -1,5 +1,9 @@
 # Content Sync Pro Plugin for Strapi
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/logo-horizontal.svg" alt="Content Sync Pro" width="720" />
+</p>
+
 A powerful Strapi v5 plugin to copy, migrate, and live-sync content, media, and data between multiple Strapi environments.
 
 [![npm version](https://badge.fury.io/js/strapi-content-sync-pro.svg)](https://www.npmjs.com/package/strapi-content-sync-pro)
@@ -10,7 +14,7 @@ A powerful Strapi v5 plugin to copy, migrate, and live-sync content, media, and 
 Plugin intro: https://youtu.be/hr3dD6dLgLQ
 
 <a href="https://youtu.be/hr3dD6dLgLQ" target="_blank" rel="noopener noreferrer">
-  <img src="docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro â€” watch the intro video" width="100%" />
+  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro — watch the intro video" width="100%" />
 </a>
 
 ## Screenshots
@@ -22,24 +26,24 @@ Plugin intro: https://youtu.be/hr3dD6dLgLQ
 
   <table>
     <tr>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro - screenshot 1" width="100%" /></td>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20160558.png" alt="Content Sync Pro - screenshot 2" width="100%" /></td>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20175903.png" alt="Content Sync Pro - screenshot 3" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro - screenshot 1" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20160558.png" alt="Content Sync Pro - screenshot 2" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20175903.png" alt="Content Sync Pro - screenshot 3" width="100%" /></td>
     </tr>
     <tr>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20175931.png" alt="Content Sync Pro - screenshot 4" width="100%" /></td>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180001.png" alt="Content Sync Pro - screenshot 5" width="100%" /></td>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180041.png" alt="Content Sync Pro - screenshot 6" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20175931.png" alt="Content Sync Pro - screenshot 4" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180001.png" alt="Content Sync Pro - screenshot 5" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180041.png" alt="Content Sync Pro - screenshot 6" width="100%" /></td>
     </tr>
     <tr>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180116.png" alt="Content Sync Pro - screenshot 7" width="100%" /></td>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180135.png" alt="Content Sync Pro - screenshot 8" width="100%" /></td>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180202.png" alt="Content Sync Pro - screenshot 9" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180116.png" alt="Content Sync Pro - screenshot 7" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180135.png" alt="Content Sync Pro - screenshot 8" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180202.png" alt="Content Sync Pro - screenshot 9" width="100%" /></td>
     </tr>
     <tr>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180228.png" alt="Content Sync Pro - screenshot 10" width="100%" /></td>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180251.png" alt="Content Sync Pro - screenshot 11" width="100%" /></td>
-      <td width="33%"><img src="docs/Screenshot%202026-04-20%20180301.png" alt="Content Sync Pro - screenshot 12" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180228.png" alt="Content Sync Pro - screenshot 10" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180251.png" alt="Content Sync Pro - screenshot 11" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180301.png" alt="Content Sync Pro - screenshot 12" width="100%" /></td>
     </tr>
   </table>
 </details>
@@ -56,7 +60,7 @@ Plugin intro: https://youtu.be/hr3dD6dLgLQ
 - **Alerts & Logging** - Detailed sync logs. Receive success/failure alerts via Email (using Strapi's email provider) or Webhooks.
 - **Secure Communication** - API token authentication combined with HMAC-SHA256 request signing using a shared secret.
 
-## Installation
+## Prerequisites
 
 - Strapi v5.0.0 or higher
 - Node.js 20.0.0 or higher
@@ -100,7 +104,7 @@ npm run develop
 2. Go to **Configuration** tab
 3. Enter your remote server details:
    - **Base URL**: The remote Strapi instance URL (e.g., `https://api.example.com`)
-   - **API Token**: Generate from remote Strapi's Settings â†’ API Tokens
+   - **API Token**: Generate from remote Strapi's Settings ? API Tokens
    - **Instance ID**: Unique identifier for this instance
    - **Shared Secret**: Same secret on both instances for HMAC signing
 
@@ -154,14 +158,14 @@ Configure **when** sync runs in the Sync tab:
 
 Full media synchronization between Strapi instances:
 
-- **URL Strategy** (HTTP) â€” Works with any upload provider (local, S3, Cloudinary). Downloads and re-uploads via the Upload API.
-- **rsync Strategy** â€” Host-level file copy using the `rsync` binary. Fastest for local-provider setups with SSH access.
-- **Profile-based** â€” Create media sync profiles with direction, conflict strategy, MIME filters, filename patterns, and execution settings.
-- **DB + File Sync** â€” Syncs both the `plugin::upload.file` database rows and the actual file bytes.
+- **URL Strategy** (HTTP) — Works with any upload provider (local, S3, Cloudinary). Downloads and re-uploads via the Upload API.
+- **rsync Strategy** — Host-level file copy using the `rsync` binary. Fastest for local-provider setups with SSH access.
+- **Profile-based** — Create media sync profiles with direction, conflict strategy, MIME filters, filename patterns, and execution settings.
+- **DB + File Sync** — Syncs both the `plugin::upload.file` database rows and the actual file bytes.
 
 ## Enforcement
 
-Pre-sync validation (Configuration â†’ Enforcement):
+Pre-sync validation (Configuration ? Enforcement):
 
 - **Schema Match** - Verify content type schemas match (strict/compatible/none)
 - **Version Check** - Verify Strapi versions (exact/minor/major/none)
@@ -169,7 +173,7 @@ Pre-sync validation (Configuration â†’ Enforcement):
 
 ## Alerts
 
-Get notified of sync events (Configuration â†’ Alerts):
+Get notified of sync events (Configuration ? Alerts):
 
 - **Strapi Logs** - Logs to sync log and server console
 - **Email** - Requires Strapi email plugin configured
@@ -229,6 +233,14 @@ Check the **Logs** tab for detailed sync history including:
 - Content type and record ID
 - Direction (push/pull)
 - Status and error messages
+
+## Security & Privacy
+
+- **No usage tracking.** This plugin does not collect, transmit, or store any analytics or telemetry data.
+- **Credential handling.** The optional "Generate Token" feature lets you authenticate to **your own** remote Strapi server to create an API token. Credentials are sent directly from your browser to your server via the plugin's backend proxy, used once, and **never stored** on disk, in the database, or in memory after the request completes.
+- **API Tokens** are encrypted at rest using Strapi's built-in store.
+- **HMAC-SHA256** signatures protect all inter-instance requests from tampering.
+- **Masked secrets** — API tokens and shared secrets are masked (`••••••••`) in all API responses.
 
 ## Contributing
 

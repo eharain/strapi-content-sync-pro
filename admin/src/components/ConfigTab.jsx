@@ -476,9 +476,11 @@ const ConfigTab = () => {
                                         <Modal.Title>Generate API Token</Modal.Title>
                                     </Modal.Header>
                                     <Modal.Body>
-                                        <Typography variant="omega" textColor="neutral600" paddingBottom={4}>
+                                        <Typography variant="omega" textColor="neutral600" paddingBottom={2}>
                                             Log in to <strong>{config.baseUrl}</strong> to automatically create an API token.
-                                            Your credentials are not stored.
+                                        </Typography>
+                                        <Typography variant="pi" textColor="neutral500" paddingBottom={4}>
+                                            Your credentials are sent directly to your remote server, used once to create a token, and never stored on disk, in the database, or in memory.
                                         </Typography>
 
                                         <Flex direction="column" gap={4}>

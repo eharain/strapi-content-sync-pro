@@ -59,6 +59,7 @@
   "files": [
     "admin/",
     "server/",
+    "docs/",
     "README.md",
     "LICENSE"
   ],

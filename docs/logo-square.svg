@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Content Sync Pro square logo">
+  <defs>
+    <linearGradient id="csp-g" x1="160" y1="160" x2="864" y2="864" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6C63FF"/>
+      <stop offset="1" stop-color="#4945FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="112" y="112" width="800" height="800" rx="180" fill="url(#csp-g)"/>
+
+  <circle cx="364" cy="470" r="68" fill="#FFFFFF" opacity="0.92"/>
+  <circle cx="660" cy="470" r="68" fill="#FFFFFF" opacity="0.92"/>
+
+  <g fill="none" stroke="#FFFFFF" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" opacity="0.95">
+    <path d="M416 418 H640"/>
+    <path d="M640 418 L604 382"/>
+    <path d="M640 418 L604 454"/>
+
+    <path d="M608 522 H384"/>
+    <path d="M384 522 L420 486"/>
+    <path d="M384 522 L420 558"/>
+  </g>
+
+  <path d="M512 620 C580 620 632 592 664 568 V676 C664 760 604 824 512 860 C420 824 360 760 360 676 V568 C392 592 444 620 512 620 Z" fill="#FFFFFF" opacity="0.92"/>
+  <path d="M452 712 L492 752 L588 656" fill="none" stroke="#4945FF" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
