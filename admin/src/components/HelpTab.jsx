@@ -1,7 +1,7 @@
 import { Box, Typography, Tabs, Divider } from '@strapi/design-system';
 
-const INTRO_VIDEO_URL = 'https://youtu.be/hr3dD6dLgLQ';
-const INTRO_VIDEO_EMBED_URL = 'https://www.youtube-nocookie.com/embed/hr3dD6dLgLQ?rel=0&origin=self';
+const INTRO_VIDEO_URL = 'https://www.youtube.com/watch?v=hr3dD6dLgLQ';
+const INTRO_VIDEO_THUMBNAIL = 'https://img.youtube.com/vi/hr3dD6dLgLQ/hqdefault.jpg';
 
 const HelpSection = ({ title, children }) => (
   <Box paddingBottom={6}>
@@ -60,9 +60,7 @@ export const HelpTab = () => {
           <Box paddingTop={4}>
             <HelpSection title="Video walkthrough">
               <Typography variant="omega" paddingBottom={3}>
-                Watch the plugin intro video:
-                {' '}
-                <DocLink href={INTRO_VIDEO_URL}>YouTube</DocLink>
+                Watch the help video to get started:
               </Typography>
 
               <Box
@@ -71,28 +69,45 @@ export const HelpTab = () => {
                 padding={3}
                 style={{ maxWidth: '960px' }}
               >
-                <Box style={{ position: 'relative', paddingTop: '56.25%' }}>
-                  <Box
-                    tag="iframe"
-                    src={INTRO_VIDEO_EMBED_URL}
-                    title="Content Sync Pro — plugin intro"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    referrerPolicy="strict-origin-when-cross-origin"
-                    allowFullScreen
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: '100%',
-                      border: 0,
-                    }}
-                  />
-                </Box>
+                <a href={INTRO_VIDEO_URL} target="_blank" rel="noopener noreferrer" style={{ display: 'block', textDecoration: 'none' }}>
+                  <Box style={{ position: 'relative', paddingTop: '56.25%', overflow: 'hidden', borderRadius: '4px' }}>
+                    <img
+                      src={INTRO_VIDEO_THUMBNAIL}
+                      alt="Content Sync Pro — plugin intro"
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                      }}
+                    />
+                    <Box
+                      style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: '68px',
+                        height: '48px',
+                        backgroundColor: 'rgba(255,0,0,0.85)',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                        <polygon points="8,5 20,12 8,19" />
+                      </svg>
+                    </Box>
+                  </Box>
+                </a>
                 <Box paddingTop={2}>
                   <Typography variant="pi" textColor="neutral500">
-                    If the video does not load above,{' '}
-                    <DocLink href={INTRO_VIDEO_URL}>watch directly on YouTube</DocLink>
+                    ▶ Watch the help video on{' '}
+                    <DocLink href={INTRO_VIDEO_URL}>YouTube</DocLink>
                   </Typography>
                 </Box>
               </Box>
