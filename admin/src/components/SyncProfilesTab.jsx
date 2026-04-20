@@ -24,7 +24,7 @@ import {
 import { Pencil, Trash, Plus, Check, CaretUp, CaretDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
-const PLUGIN_ID = 'strapi-to-strapi-data-sync';
+const PLUGIN_ID = 'strapi-content-sync-pro';
 
 const DIRECTION_OPTIONS = [
   { value: 'push', label: 'Push Only' },

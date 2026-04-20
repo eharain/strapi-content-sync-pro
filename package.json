@@ -1,7 +1,7 @@
 {
-  "name": "strapi-to-strapi-data-sync",
+  "name": "strapi-content-sync-pro",
   "version": "1.0.0",
-  "description": "Strapi v5 plugin for syncing data between Strapi instances with bi-directional sync, field-level policies, scheduling, and alerts",
+  "description": "Strapi v5 plugin to copy, migrate, and live-sync content, media, and data between multiple Strapi environments with bi-directional sync, field-level policies, scheduling, and alerts.",
   "license": "MIT",
   "author": {
     "name": "Ejaz Husain Arain",
@@ -10,21 +10,30 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/eharain/strapi-plugins-strapi-to-strapi-data-sync.git"
+    "url": "git+https://github.com/eharain/strapi-content-sync-pro.git"
   },
   "bugs": {
-    "url": "https://github.com/eharain/strapi-plugins-strapi-to-strapi-data-sync/issues"
+    "url": "https://github.com/eharain/strapi-content-sync-pro/issues"
   },
-  "homepage": "https://github.com/eharain/strapi-plugins-strapi-to-strapi-data-sync#readme",
+  "homepage": "https://github.com/eharain/strapi-content-sync-pro#readme",
   "keywords": [
     "strapi",
     "strapi-plugin",
     "strapi-v5",
     "sync",
+    "live-sync",
     "data-sync",
-    "synchronization",
-    "replication",
+    "content-sync",
+    "copy",
+    "migrate",
     "migration",
+    "mirror",
+    "replicate",
+    "replication",
+    "media-sync",
+    "synchronization",
+    "cross-environment",
+    "data-transfer",
     "headless-cms",
     "content-management"
   ],
@@ -63,9 +72,9 @@
     "npm": ">=6.0.0"
   },
   "strapi": {
-    "name": "strapi-to-strapi-data-sync",
-    "description": "Sync data between Strapi instances",
+    "name": "strapi-content-sync-pro",
+    "description": "Copy, migrate, and live-sync content, media, and data between Strapi environments",
     "kind": "plugin",
-    "displayName": "Strapi-to-Strapi Data Sync"
+    "displayName": "Content Sync Pro"
   }
 }

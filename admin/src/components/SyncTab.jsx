@@ -26,7 +26,7 @@ import {
 import { Play, Clock, Cog, ArrowUp, ArrowDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
-const PLUGIN_ID = 'strapi-to-strapi-data-sync';
+const PLUGIN_ID = 'strapi-content-sync-pro';
 
 const EXECUTION_MODE_OPTIONS = [
   { value: 'on_demand', label: 'On Demand (Manual)' },
@@ -923,7 +923,7 @@ const SyncTab = () => {
                 <Box paddingBottom={4}>
                   <Typography variant="pi" textColor="neutral600">
                     External mode: the plugin will NOT run an in-process timer. Your external scheduler must POST to
-                    {' '}<code>/api/strapi-to-strapi-data-sync/sync-execution/execute/&lt;profileId&gt;</code>{' '}
+                    {' '}<code>/api/strapi-content-sync-pro/sync-execution/execute/&lt;profileId&gt;</code>{' '}
                     with a valid API token. See the Help tab for concrete examples (cron, Windows Task Scheduler, systemd, Kubernetes CronJob, GitHub Actions).
                   </Typography>
                 </Box>

@@ -14,7 +14,7 @@ module.exports = async (ctx, next) => {
     return ctx.unauthorized('Missing x-sync-signature or x-sync-timestamp header');
   }
 
-  const configService = strapi.plugin('strapi-to-strapi-data-sync').service('config');
+  const configService = strapi.plugin('strapi-content-sync-pro').service('config');
   const serverConfig = await configService.getConfig({ safe: false });
 
   if (!serverConfig || !serverConfig.sharedSecret) {

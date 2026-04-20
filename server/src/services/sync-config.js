@@ -4,7 +4,7 @@ const STORE_KEY = 'sync-configuration';
 
 module.exports = ({ strapi }) => {
   function getStore() {
-    return strapi.store({ type: 'plugin', name: 'strapi-to-strapi-data-sync' });
+    return strapi.store({ type: 'plugin', name: 'strapi-content-sync-pro' });
   }
 
   return {

@@ -22,7 +22,7 @@ import {
 import { Pencil, Trash, Play, Check } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
-const PLUGIN_ID = 'strapi-to-strapi-data-sync';
+const PLUGIN_ID = 'strapi-content-sync-pro';
 
 const STRATEGY_OPTIONS = [
   { value: 'disabled', label: 'Disabled' },

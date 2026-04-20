@@ -1,23 +1,23 @@
-# Strapi-to-Strapi Data Sync Plugin
+# Content Sync Pro Plugin for Strapi
 
-A powerful Strapi v5 plugin for synchronizing data between Strapi instances with bi-directional sync, field-level policies, scheduling, and alerts.
+A powerful Strapi v5 plugin to copy, migrate, and live-sync content, media, and data between multiple Strapi environments.
 
-[![npm version](https://badge.fury.io/js/strapi-to-strapi-data-sync.svg)](https://www.npmjs.com/package/strapi-to-strapi-data-sync)
+[![npm version](https://badge.fury.io/js/strapi-content-sync-pro.svg)](https://www.npmjs.com/package/strapi-content-sync-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
 
-- **Bi-directional Sync** - Push, pull, or sync both ways
-- **Sync Profiles** - Define WHAT to sync with field-level control
-- **Execution Modes** - On-demand, scheduled, or live (real-time) sync
-- **Conflict Resolution** - Latest wins, local wins, or remote wins strategies
-- **Dependency Syncing** - Automatically sync related entities
-- **Enforcement Checks** - Schema validation, version checks, time sync
-- **Alerts** - Email (via Strapi email plugin), webhooks, and log notifications
-- **Secure** - HMAC-SHA256 signed requests with shared secrets
-- **Admin UI** - Complete configuration and monitoring interface
+- **Bi-directional Content Sync** - Push, pull, or sync both ways (Local wins, Remote wins, or Latest wins).
+- **Media Sync** - Full media synchronization via HTTP (URL-based) or host-level file copy (`rsync`). Includes MIME type filtering and concurrency controls.
+- **Sync Profiles** - Define WHAT to sync with field-level control (Advanced mode) or preset modes.
+- **Execution Modes** - On-demand, Scheduled (interval, timeout, cron, or external scheduler), or Live (real-time) sync.
+- **Pagination & Large Dataset Support** - Built-in pagination ensures stable memory usage even when syncing thousands of records.
+- **Dependency Analytics** - Automatically detects and syncs related entities and components in the correct order.
+- **Enforcement Checks** - Pre-sync schema compatibility validation, version checks, and server time drift checks.
+- **Alerts & Logging** - Detailed sync logs. Receive success/failure alerts via Email (using Strapi's email provider) or Webhooks.
+- **Secure Communication** - API token authentication combined with HMAC-SHA256 request signing using a shared secret.
 
-## Requirements
+## Installation
 
 - Strapi v5.0.0 or higher
 - Node.js 20.0.0 or higher
@@ -25,13 +25,13 @@ A powerful Strapi v5 plugin for synchronizing data between Strapi instances with
 ## Installation
 
 ```bash
-npm install strapi-to-strapi-data-sync
+npm install strapi-content-sync-pro
 ```
 
 Or with yarn:
 
 ```bash
-yarn add strapi-to-strapi-data-sync
+yarn add strapi-content-sync-pro
 ```
 
 ## Configuration
@@ -42,7 +42,7 @@ Add to your `config/plugins.js` (or `config/plugins.ts`):
 
 ```javascript
 module.exports = {
-  'strapi-to-strapi-data-sync': {
+  'strapi-content-sync-pro': {
     enabled: true,
   },
 };
@@ -57,7 +57,7 @@ npm run develop
 
 ### 3. Configure via Admin UI
 
-1. Navigate to **Strapi-to-Strapi Data Sync** in the admin sidebar
+1. Navigate to **Content Sync Pro Plugin** in the admin sidebar
 2. Go to **Configuration** tab
 3. Enter your remote server details:
    - **Base URL**: The remote Strapi instance URL (e.g., `https://api.example.com`)
@@ -99,8 +99,26 @@ Configure **when** sync runs in the Sync tab:
 | Mode | Description |
 |------|-------------|
 | **On Demand** | Manual trigger only |
-| **Scheduled** | Run at intervals (1-1440 minutes) |
-| **Live** | Real-time sync on content changes |
+| **Scheduled** | Interval, Timeout, Cron expression, or External scheduler |
+| **Live** | Real-time sync on content changes via lifecycle hooks |
+
+### Scheduled Sync Types
+
+| Type | Description |
+|------|-------------|
+| **Interval** (`setInterval`) | Fires every N minutes. Simple but can overlap. |
+| **Timeout** (chained `setTimeout`) | Waits for the previous run to finish. No overlap. |
+| **Cron** (wall-clock) | Standard cron expression via `strapi.cron`. Recommended for production. |
+| **External** | No in-process timer. Use system cron, Kubernetes CronJob, GitHub Actions, etc. |
+
+## Media Sync
+
+Full media synchronization between Strapi instances:
+
+- **URL Strategy** (HTTP) — Works with any upload provider (local, S3, Cloudinary). Downloads and re-uploads via the Upload API.
+- **rsync Strategy** — Host-level file copy using the `rsync` binary. Fastest for local-provider setups with SSH access.
+- **Profile-based** — Create media sync profiles with direction, conflict strategy, MIME filters, filename patterns, and execution settings.
+- **DB + File Sync** — Syncs both the `plugin::upload.file` database rows and the actual file bytes.
 
 ## Enforcement
 
@@ -124,17 +142,17 @@ Get notified of sync events (Configuration → Alerts):
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/strapi-to-strapi-data-sync/config` | Get connection config |
-| `POST` | `/strapi-to-strapi-data-sync/config` | Update connection config |
-| `POST` | `/strapi-to-strapi-data-sync/sync-now` | Trigger manual sync |
-| `GET` | `/strapi-to-strapi-data-sync/sync-profiles` | List sync profiles |
-| `GET` | `/strapi-to-strapi-data-sync/logs` | View sync logs |
+| `GET` | `/strapi-content-sync-pro/config` | Get connection config |
+| `POST` | `/strapi-content-sync-pro/config` | Update connection config |
+| `POST` | `/strapi-content-sync-pro/sync-now` | Trigger manual sync |
+| `GET` | `/strapi-content-sync-pro/sync-profiles` | List sync profiles |
+| `GET` | `/strapi-content-sync-pro/logs` | View sync logs |
 
 ### Public Routes (HMAC signed)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/strapi-to-strapi-data-sync/receive` | Receive data from remote |
+| `POST` | `/strapi-content-sync-pro/receive` | Receive data from remote |
 
 ## Security
 

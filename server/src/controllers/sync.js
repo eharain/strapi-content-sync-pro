@@ -2,7 +2,7 @@
 
 module.exports = {
   async syncNow(ctx) {
-    const syncService = strapi.plugin('strapi-to-strapi-data-sync').service('sync');
+    const syncService = strapi.plugin('strapi-content-sync-pro').service('sync');
 
     try {
       const result = await syncService.syncNow();
@@ -19,7 +19,7 @@ module.exports = {
       return ctx.badRequest('Missing uid, data, or syncId');
     }
 
-    const syncService = strapi.plugin('strapi-to-strapi-data-sync').service('sync');
+    const syncService = strapi.plugin('strapi-content-sync-pro').service('sync');
 
     try {
       const result = await syncService.receiveRecord(body.uid, body.data || {}, body.syncId);

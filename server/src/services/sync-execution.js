@@ -48,18 +48,18 @@ const STORE_KEY = 'sync-execution-settings';
  * - external : The plugin registers NO in-process schedule. Instead, an
  *              external scheduler (systemd timer, Windows Task Scheduler,
  *              Kubernetes CronJob, GitHub Actions, cloud scheduler, ...) must
- *              POST /api/strapi-to-strapi-data-sync/sync-execution/execute/:id
+ *              POST /api/strapi-content-sync-pro/sync-execution/execute/:id
  *              to drive the run. Recommended for large datasets, multi-node
  *              deployments, and HA setups where you can't rely on a single
  *              Node process staying up.
  */
 module.exports = ({ strapi }) => {
   function getStore() {
-    return strapi.store({ type: 'plugin', name: 'strapi-to-strapi-data-sync' });
+    return strapi.store({ type: 'plugin', name: 'strapi-content-sync-pro' });
   }
 
   function plugin() {
-    return strapi.plugin('strapi-to-strapi-data-sync');
+    return strapi.plugin('strapi-content-sync-pro');
   }
 
   const DEFAULT_GLOBAL_SETTINGS = {

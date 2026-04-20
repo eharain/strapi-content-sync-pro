@@ -27,7 +27,7 @@ const HomePage = () => {
         <Main>
             <Box padding={8} background="neutral100">
                 <Typography variant="alpha" tag="h1">
-                    Strapi-to-Strapi Data Sync -  Reliable Data Synchronization for Strapi Environments
+                    Content Sync Pro Plugin - Reliable Data Synchronization for Strapi Environments
                 </Typography>
             
 
@@ -74,7 +74,7 @@ const HomePage = () => {
                                     variant="pi"
                                     textColor="primary600"
                                     tag="a"
-                                    href="https://github.com/eharain/strapi-to-strapi-data-sync"
+                                    href="https://github.com/eharain/strapi-content-sync-pro"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >

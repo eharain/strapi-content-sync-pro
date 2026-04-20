@@ -29,7 +29,7 @@ const { Readable } = require('node:stream');
 const PROFILES_KEY = 'media-sync-profiles';
 const GLOBAL_SETTINGS_KEY = 'media-sync-global-settings';
 const STATUS_KEY = 'media-sync-status';
-const PLUGIN_NAME = 'strapi-to-strapi-data-sync';
+const PLUGIN_NAME = 'strapi-content-sync-pro';
 
 // ── Default MIME type groups ────────────────────────────────────────────────
 const DEFAULT_MIME_IMAGES = ['image/'];
