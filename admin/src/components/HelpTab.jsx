@@ -1,7 +1,7 @@
 import { Box, Typography, Tabs, Divider } from '@strapi/design-system';
 
 const INTRO_VIDEO_URL = 'https://youtu.be/hr3dD6dLgLQ';
-const INTRO_VIDEO_EMBED_URL = 'https://www.youtube.com/embed/hr3dD6dLgLQ';
+const INTRO_VIDEO_EMBED_URL = 'https://www.youtube-nocookie.com/embed/hr3dD6dLgLQ?rel=0&origin=self';
 
 const HelpSection = ({ title, children }) => (
   <Box paddingBottom={6}>
@@ -77,6 +77,7 @@ export const HelpTab = () => {
                     src={INTRO_VIDEO_EMBED_URL}
                     title="Content Sync Pro — plugin intro"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerPolicy="strict-origin-when-cross-origin"
                     allowFullScreen
                     style={{
                       position: 'absolute',
@@ -87,6 +88,12 @@ export const HelpTab = () => {
                       border: 0,
                     }}
                   />
+                </Box>
+                <Box paddingTop={2}>
+                  <Typography variant="pi" textColor="neutral500">
+                    If the video does not load above,{' '}
+                    <DocLink href={INTRO_VIDEO_URL}>watch directly on YouTube</DocLink>
+                  </Typography>
                 </Box>
               </Box>
             </HelpSection>
