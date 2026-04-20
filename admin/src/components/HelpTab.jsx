@@ -1,5 +1,8 @@
 import { Box, Typography, Tabs, Divider } from '@strapi/design-system';
 
+const INTRO_VIDEO_URL = 'https://youtu.be/hr3dD6dLgLQ';
+const INTRO_VIDEO_EMBED_URL = 'https://www.youtube.com/embed/hr3dD6dLgLQ';
+
 const HelpSection = ({ title, children }) => (
   <Box paddingBottom={6}>
     <Typography variant="delta" tag="h3" paddingBottom={2}>{title}</Typography>
@@ -55,6 +58,39 @@ export const HelpTab = () => {
         {/* Overview Tab */}
         <Tabs.Content value="overview">
           <Box paddingTop={4}>
+            <HelpSection title="Video walkthrough">
+              <Typography variant="omega" paddingBottom={3}>
+                Watch the plugin intro video:
+                {' '}
+                <DocLink href={INTRO_VIDEO_URL}>YouTube</DocLink>
+              </Typography>
+
+              <Box
+                background="neutral100"
+                hasRadius
+                padding={3}
+                style={{ maxWidth: '960px' }}
+              >
+                <Box style={{ position: 'relative', paddingTop: '56.25%' }}>
+                  <Box
+                    tag="iframe"
+                    src={INTRO_VIDEO_EMBED_URL}
+                    title="Content Sync Pro — plugin intro"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      border: 0,
+                    }}
+                  />
+                </Box>
+              </Box>
+            </HelpSection>
+
             <HelpSection title="What is Content Sync Pro?">
               <Typography variant="omega">
                 This plugin enables data synchronization between two Strapi v5 instances. It provides a complete
