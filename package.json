@@ -16,7 +16,6 @@
     "url": "https://github.com/eharain/strapi-content-sync-pro/issues"
   },
   "publishConfig": {
-    "provenance": true,
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
