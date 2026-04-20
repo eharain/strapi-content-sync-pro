@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Content Sync Pro logo">
+  <defs>
+    <linearGradient id="csp-g" x1="40" y1="40" x2="240" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6C63FF"/>
+      <stop offset="1" stop-color="#4945FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- mark -->
+  <g transform="translate(24,24)">
+    <rect x="0" y="0" width="272" height="272" rx="64" fill="url(#csp-g)"/>
+    <circle cx="92" cy="120" r="22" fill="#FFFFFF" opacity="0.92"/>
+    <circle cx="180" cy="120" r="22" fill="#FFFFFF" opacity="0.92"/>
+    <g fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.95">
+      <path d="M110 104 H172"/>
+      <path d="M172 104 L160 92"/>
+      <path d="M172 104 L160 116"/>
+      <path d="M164 136 H102"/>
+      <path d="M102 136 L114 124"/>
+      <path d="M102 136 L114 148"/>
+    </g>
+    <path d="M136 158 C156 158 172 150 182 143 V176 C182 202 164 222 136 232 C108 222 90 202 90 176 V143 C100 150 116 158 136 158 Z" fill="#FFFFFF" opacity="0.92"/>
+    <path d="M118 186 L130 198 L156 172" fill="none" stroke="#4945FF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- wordmark -->
+  <g transform="translate(340,88)">
+    <text x="0" y="0" font-size="54" font-weight="700" font-family="Inter, Segoe UI, Arial, sans-serif" fill="#111827">Content Sync</text>
+    <text x="0" y="70" font-size="54" font-weight="700" font-family="Inter, Segoe UI, Arial, sans-serif" fill="#4945FF">Pro</text>
+    <text x="140" y="70" font-size="22" font-weight="500" font-family="Inter, Segoe UI, Arial, sans-serif" fill="#6B7280">Strapi v5 plugin</text>
+  </g>
+</svg>

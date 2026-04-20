@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Content Sync Pro logo mark">
+  <defs>
+    <linearGradient id="csp-g" x1="96" y1="96" x2="416" y2="416" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6C63FF"/>
+      <stop offset="1" stop-color="#4945FF"/>
+    </linearGradient>
+    <filter id="csp-shadow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <!-- background badge -->
+  <rect x="56" y="56" width="400" height="400" rx="92" fill="url(#csp-g)" filter="url(#csp-shadow)"/>
+
+  <!-- sync nodes -->
+  <circle cx="182" cy="236" r="34" fill="#FFFFFF" opacity="0.92"/>
+  <circle cx="330" cy="236" r="34" fill="#FFFFFF" opacity="0.92"/>
+
+  <!-- bi-directional arrows -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" opacity="0.95">
+    <!-- top arrow: left -> right -->
+    <path d="M208 210 H320"/>
+    <path d="M320 210 L302 192"/>
+    <path d="M320 210 L302 228"/>
+
+    <!-- bottom arrow: right -> left -->
+    <path d="M304 262 H192"/>
+    <path d="M192 262 L210 244"/>
+    <path d="M192 262 L210 280"/>
+  </g>
+
+  <!-- safety shield + check ("pro" / enforcement) -->
+  <g transform="translate(0,2)">
+    <path d="M256 310 C290 310 316 296 332 284 V338 C332 380 302 412 256 430 C210 412 180 380 180 338 V284 C196 296 222 310 256 310 Z" fill="#FFFFFF" opacity="0.92"/>
+    <path d="M226 356 L246 376 L292 330" fill="none" stroke="#4945FF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
