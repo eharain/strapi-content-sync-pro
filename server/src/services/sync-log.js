@@ -1,6 +1,6 @@
 'use strict';
 
-const CONTENT_TYPE_UID = 'plugin::strapi-to-strapi-data-sync.sync-log';
+const CONTENT_TYPE_UID = 'plugin::strapi-content-sync-pro.sync-log';
 
 module.exports = ({ strapi }) => ({
   async log({ action, contentType, recordId, syncId, direction, status, message, details }) {

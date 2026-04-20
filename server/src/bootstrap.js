@@ -9,8 +9,8 @@ const bootstrap = ({ strapi }) => {
    */
   const isLiveSyncEnabled = async (contentTypeUid) => {
     try {
-      const executionService = strapi.plugin('strapi-to-strapi-data-sync').service('syncExecution');
-      const profilesService = strapi.plugin('strapi-to-strapi-data-sync').service('syncProfiles');
+      const executionService = strapi.plugin('strapi-content-sync-pro').service('syncExecution');
+      const profilesService = strapi.plugin('strapi-content-sync-pro').service('syncProfiles');
 
       // Get active profile for this content type
       const profile = await profilesService.getActiveProfileForContentType(contentTypeUid);
@@ -32,10 +32,10 @@ const bootstrap = ({ strapi }) => {
    */
   const executeLiveSync = async (contentTypeUid, record, action) => {
     try {
-      const executionService = strapi.plugin('strapi-to-strapi-data-sync').service('syncExecution');
-      const profilesService = strapi.plugin('strapi-to-strapi-data-sync').service('syncProfiles');
-      const syncService = strapi.plugin('strapi-to-strapi-data-sync').service('sync');
-      const logService = strapi.plugin('strapi-to-strapi-data-sync').service('syncLog');
+      const executionService = strapi.plugin('strapi-content-sync-pro').service('syncExecution');
+      const profilesService = strapi.plugin('strapi-content-sync-pro').service('syncProfiles');
+      const syncService = strapi.plugin('strapi-content-sync-pro').service('sync');
+      const logService = strapi.plugin('strapi-content-sync-pro').service('syncLog');
 
       const profile = await profilesService.getActiveProfileForContentType(contentTypeUid);
       if (!profile) return;
@@ -139,7 +139,7 @@ const bootstrap = ({ strapi }) => {
   // Defer scheduler initialization
   setImmediate(async () => {
     try {
-      const executionService = strapi.plugin('strapi-to-strapi-data-sync').service('syncExecution');
+      const executionService = strapi.plugin('strapi-content-sync-pro').service('syncExecution');
       await executionService.initializeSchedulers();
       strapi.log.info('[data-sync] Scheduled sync jobs initialized');
     } catch (err) {

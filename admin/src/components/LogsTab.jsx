@@ -15,7 +15,7 @@ import {
 } from '@strapi/design-system';
 import { useFetchClient } from '@strapi/strapi/admin';
 
-const PLUGIN_ID = 'strapi-to-strapi-data-sync';
+const PLUGIN_ID = 'strapi-content-sync-pro';
 
 const LogsTab = () => {
   const { get } = useFetchClient();

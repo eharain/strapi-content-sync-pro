@@ -34,7 +34,7 @@ async function applyLocal(strapi, uid, record, fields) {
  */
 async function applyRemote(remoteConfig, uid, record, fields) {
   const { baseUrl, apiToken, sharedSecret } = remoteConfig;
-  const url = new URL('/strapi-to-strapi-data-sync/receive', baseUrl);
+  const url = new URL('/strapi-content-sync-pro/receive', baseUrl);
 
   const body = {
     uid,

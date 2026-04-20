@@ -21,11 +21,11 @@ const STORE_KEY = 'sync-alerts-settings';
  */
 module.exports = ({ strapi }) => {
   function getStore() {
-    return strapi.store({ type: 'plugin', name: 'strapi-to-strapi-data-sync' });
+    return strapi.store({ type: 'plugin', name: 'strapi-content-sync-pro' });
   }
 
   function plugin() {
-    return strapi.plugin('strapi-to-strapi-data-sync');
+    return strapi.plugin('strapi-content-sync-pro');
   }
 
   const DEFAULT_ALERT_SETTINGS = {

@@ -8,7 +8,7 @@ module.exports = ({ strapi }) => {
   function getStore() {
     return strapi.store({
       type: 'plugin',
-      name: 'strapi-to-strapi-data-sync',
+      name: 'strapi-content-sync-pro',
     });
   }
 

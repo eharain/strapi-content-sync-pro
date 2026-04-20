@@ -1,6 +1,6 @@
 'use strict';
 
-const PLUGIN_ID = 'strapi-to-strapi-data-sync';
+const PLUGIN_ID = 'strapi-content-sync-pro';
 
 function service(strapi) {
   return strapi.plugin(PLUGIN_ID).service('syncMedia');

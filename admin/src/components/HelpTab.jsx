@@ -35,7 +35,7 @@ export const HelpTab = () => {
       <Box paddingBottom={4}>
         <Typography variant="beta" tag="h2">Plugin Documentation</Typography>
         <Typography variant="omega" textColor="neutral600">
-          Complete guide for configuring and using the Strapi-to-Strapi Data Sync plugin.
+          Complete guide for configuring and using the Content Sync Pro plugin.
         </Typography>
       </Box>
 
@@ -55,7 +55,7 @@ export const HelpTab = () => {
         {/* Overview Tab */}
         <Tabs.Content value="overview">
           <Box paddingTop={4}>
-            <HelpSection title="What is Strapi-to-Strapi Data Sync?">
+            <HelpSection title="What is Content Sync Pro?">
               <Typography variant="omega">
                 This plugin enables data synchronization between two Strapi v5 instances. It provides a complete
                 solution for keeping content in sync across development, staging, and production environments.
@@ -389,7 +389,7 @@ http://localhost:1337</CodeBlock>
                 </Typography>
                 <Box background="neutral0" padding={3} hasRadius marginTop={2} marginBottom={2}>
                   <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
-                    POST {'{BASE_URL}'}/api/strapi-to-strapi-data-sync/sync-execution/execute/{'{profileId}'}<br />
+                    POST {'{BASE_URL}'}/api/strapi-content-sync-pro/sync-execution/execute/{'{profileId}'}<br />
                     Authorization: Bearer {'{STRAPI_API_TOKEN}'}<br />
                     Content-Type: application/json
                   </Typography>
@@ -397,13 +397,13 @@ http://localhost:1337</CodeBlock>
                 <Typography variant="omega" paddingTop={1}><strong>Linux cron</strong> (every hour):</Typography>
                 <Box background="neutral0" padding={3} hasRadius marginTop={1} marginBottom={2}>
                   <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
-                    0 * * * * curl -fsS -X POST -H "Authorization: Bearer $TOKEN" https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID
+                    0 * * * * curl -fsS -X POST -H "Authorization: Bearer $TOKEN" https://cms.example.com/api/strapi-content-sync-pro/sync-execution/execute/PROFILE_ID
                   </Typography>
                 </Box>
                 <Typography variant="omega" paddingTop={1}><strong>Windows Task Scheduler</strong> (PowerShell):</Typography>
                 <Box background="neutral0" padding={3} hasRadius marginTop={1} marginBottom={2}>
                   <Typography variant="pi" style={{ fontFamily: 'monospace' }}>
-                    {"$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-Command \"Invoke-RestMethod -Method Post -Uri https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID -Headers @{Authorization=''Bearer ''+$env:SYNC_TOKEN}\"'"}<br />
+                    {"$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-Command \"Invoke-RestMethod -Method Post -Uri https://cms.example.com/api/strapi-content-sync-pro/sync-execution/execute/PROFILE_ID -Headers @{Authorization=''Bearer ''+$env:SYNC_TOKEN}\"'"}<br />
                     {'$t = New-ScheduledTaskTrigger -Daily -At 2am'}<br />
                     {'Register-ScheduledTask -TaskName "StrapiDataSync" -Action $a -Trigger $t'}
                   </Typography>
@@ -414,7 +414,7 @@ http://localhost:1337</CodeBlock>
                     # /etc/systemd/system/strapi-sync.service<br />
                     [Service]<br />
                     Type=oneshot<br />
-                    ExecStart=/usr/bin/curl -fsS -X POST -H "Authorization: Bearer %i" https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID<br /><br />
+                    ExecStart=/usr/bin/curl -fsS -X POST -H "Authorization: Bearer %i" https://cms.example.com/api/strapi-content-sync-pro/sync-execution/execute/PROFILE_ID<br /><br />
                     # /etc/systemd/system/strapi-sync.timer<br />
                     [Timer]<br />
                     OnCalendar=hourly<br />
@@ -439,7 +439,7 @@ http://localhost:1337</CodeBlock>
                     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;containers:<br />
                     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- name: sync<br />
                     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;image: curlimages/curl:latest<br />
-                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;args: ["-fsS","-X","POST","-H","Authorization: Bearer $(TOKEN)","https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID"]
+                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;args: ["-fsS","-X","POST","-H","Authorization: Bearer $(TOKEN)","https://cms.example.com/api/strapi-content-sync-pro/sync-execution/execute/PROFILE_ID"]
                   </Typography>
                 </Box>
                 <Typography variant="omega" paddingTop={1}><strong>GitHub Actions</strong> (scheduled workflow):</Typography>
@@ -452,7 +452,7 @@ http://localhost:1337</CodeBlock>
                     &nbsp;&nbsp;sync:<br />
                     &nbsp;&nbsp;&nbsp;&nbsp;runs-on: ubuntu-latest<br />
                     &nbsp;&nbsp;&nbsp;&nbsp;steps:<br />
-                    {'      - run: curl -fsS -X POST -H "Authorization: Bearer ${{ secrets.SYNC_TOKEN }}" https://cms.example.com/api/strapi-to-strapi-data-sync/sync-execution/execute/PROFILE_ID'}
+                    {'      - run: curl -fsS -X POST -H "Authorization: Bearer ${{ secrets.SYNC_TOKEN }}" https://cms.example.com/api/strapi-content-sync-pro/sync-execution/execute/PROFILE_ID'}
                   </Typography>
                 </Box>
                 <Typography variant="pi" textColor="neutral600" paddingTop={2}>
@@ -644,10 +644,10 @@ http://localhost:1337</CodeBlock>
                 <li><Typography variant="omega"><strong>Live</strong> - Triggers on upload file changes (create/update/delete)</Typography></li>
               </ul>
               <Typography variant="omega" paddingTop={2}>
-                For per-profile execution: <code>POST /api/strapi-to-strapi-data-sync/media-sync/profiles/:id/run</code>
+                For per-profile execution: <code>POST /api/strapi-content-sync-pro/media-sync/profiles/:id/run</code>
               </Typography>
               <Typography variant="omega" paddingTop={1}>
-                For all active profiles: <code>POST /api/strapi-to-strapi-data-sync/media-sync/run-active</code>
+                For all active profiles: <code>POST /api/strapi-content-sync-pro/media-sync/run-active</code>
               </Typography>
             </HelpSection>
 
@@ -932,7 +932,7 @@ http://localhost:1337</CodeBlock>
                 </DocLink>
               </Box>
               <Box paddingTop={2}>
-                <DocLink href="https://github.com/eharain/strapi-plugins-strapi-to-strapi-data-sync/issues">
+                <DocLink href="https://github.com/eharain/strapi-plugins-strapi-content-sync-pro/issues">
                   Report an Issue on GitHub
                 </DocLink>
               </Box>

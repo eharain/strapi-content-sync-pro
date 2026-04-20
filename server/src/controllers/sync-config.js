@@ -2,7 +2,7 @@
 
 module.exports = {
   async get(ctx) {
-    const service = strapi.plugin('strapi-to-strapi-data-sync').service('syncConfig');
+    const service = strapi.plugin('strapi-content-sync-pro').service('syncConfig');
     const config = await service.getSyncConfig();
     ctx.body = { data: config };
   },
@@ -14,7 +14,7 @@ module.exports = {
       return ctx.badRequest('Request body must be a JSON object');
     }
 
-    const service = strapi.plugin('strapi-to-strapi-data-sync').service('syncConfig');
+    const service = strapi.plugin('strapi-content-sync-pro').service('syncConfig');
 
     try {
       const saved = await service.setSyncConfig(body);
