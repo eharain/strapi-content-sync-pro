@@ -1,7 +1,10 @@
 'use strict';
 
+const { strapi: strapiPackageConfig = {} } = require('../../../package.json');
 const { generateSignature } = require('./hmac');
 const { markAsRemoteUpdate } = require('./sync-guard');
+
+const PLUGIN_ID = strapiPackageConfig.name || 'strapi-content-sync-pro';
 
 /**
  * Apply a record received from a remote instance to the local database.
@@ -34,7 +37,7 @@ async function applyLocal(strapi, uid, record, fields) {
  */
 async function applyRemote(remoteConfig, uid, record, fields) {
   const { baseUrl, apiToken, sharedSecret } = remoteConfig;
-  const url = new URL('/strapi-content-sync-pro/receive', baseUrl);
+  const url = new URL(`/api/${PLUGIN_ID}/receive`, baseUrl);
 
   const body = {
     uid,

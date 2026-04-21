@@ -53,7 +53,7 @@ Plugin intro: https://youtu.be/hr3dD6dLgLQ
 - **Bi-directional Content Sync** - Push, pull, or sync both ways (Local wins, Remote wins, or Latest wins).
 - **Media Sync** - Full media synchronization via HTTP (URL-based) or host-level file copy (`rsync`). Includes MIME type filtering and concurrency controls.
 - **Sync Profiles** - Define WHAT to sync with field-level control (Advanced mode) or preset modes.
-- **Execution Modes** - On-demand, Scheduled (interval, timeout, cron, or external scheduler), or Live (real-time) sync.
+- **Execution Modes** - On-demand, Scheduled (interval, timeout, cron, or external scheduler), Live (real-time), with per-profile execution controls.
 - **Pagination & Large Dataset Support** - Built-in pagination ensures stable memory usage even when syncing thousands of records.
 - **Dependency Analytics** - Automatically detects and syncs related entities and components in the correct order.
 - **Enforcement Checks** - Pre-sync schema compatibility validation, version checks, and server time drift checks.
@@ -111,13 +111,16 @@ npm run develop
 ## Quick Start
 
 ### Step 1: Configure Connection
-In the **Configuration** tab, set up the remote server connection.
+In the **Configuration** tab, set the remote Base URL, API Token, Instance ID, and Shared Secret.
 
 ### Step 2: Enable Content Types
 In the **Content Types** tab, toggle on the content types you want to sync. Default profiles are auto-generated.
 
-### Step 3: Run Sync
-In the **Sync** tab, click "Sync All Active Profiles" or run individual profiles.
+### Step 3: Tune Profiles and Execution
+In **Sync Profiles**, adjust direction/conflict strategy if needed, then in **Sync** configure execution mode and global page size.
+
+### Step 4: Run Sync
+In the **Sync** tab, click **Sync All Active Profiles** or run individual profiles.
 
 ## Sync Profiles
 
@@ -222,8 +225,9 @@ Sync products from a central catalog to multiple storefronts:
 | Error | Solution |
 |-------|----------|
 | "Remote server not configured" | Add Base URL and API Token in Configuration |
-| "401 Unauthorized" | Regenerate API token on remote server |
+| "401 Unauthorized / 403 Forbidden" | Regenerate API token and verify required permissions for synced content types (and Upload permissions for media) |
 | "HMAC verification failed" | Ensure shared secret matches on both instances |
+| "Content type endpoint not found" | Ensure matching content-type definitions and enabled API routes on both instances |
 | "Schema mismatch" | Sync content type schemas or set enforcement to "compatible" |
 
 ### Viewing Logs

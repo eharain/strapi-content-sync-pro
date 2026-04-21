@@ -238,6 +238,7 @@ module.exports = ({ strapi }) => {
     async executeProfile(profileId, options = {}) {
       const syncService = plugin().service('sync');
       const profilesService = plugin().service('syncProfiles');
+      const dependencyResolver = plugin().service('dependencyResolver');
       const alertsService = plugin().service('alerts');
       const logService = plugin().service('syncLog');
 
@@ -263,12 +264,39 @@ module.exports = ({ strapi }) => {
           details: { profileId, syncDependencies, dependencyDepth },
         });
 
+        const dependencyResults = [];
+        if (syncDependencies) {
+          const dependencyOrder = dependencyResolver
+            .getSyncOrder(profile.contentType, dependencyDepth)
+            .filter((uid) => uid !== profile.contentType && uid.startsWith('api::') && !!strapi.contentTypes[uid]);
+
+          for (const dependencyUid of dependencyOrder) {
+            const dependencyProfile = await profilesService.getActiveProfileForContentType(dependencyUid);
+            const dependencyResult = await syncService.syncContentType(dependencyUid, {
+              profile: dependencyProfile,
+              syncDependencies: false,
+              dependencyDepth: 1,
+            });
+
+            dependencyResults.push({
+              uid: dependencyUid,
+              profile: dependencyProfile ? { id: dependencyProfile.id, name: dependencyProfile.name } : null,
+              result: dependencyResult,
+            });
+          }
+        }
+
         // Execute sync
         const result = await syncService.syncContentType(profile.contentType, {
           profile,
           syncDependencies,
           dependencyDepth,
         });
+
+        const fullResult = {
+          ...result,
+          dependencyResults,
+        };
 
         // Update last execution time
         await this.updateLastExecution(profileId);
@@ -277,11 +305,11 @@ module.exports = ({ strapi }) => {
         await alertsService.sendAlert('sync_success', {
           profile: profile.name,
           contentType: profile.contentType,
-          result,
+          result: fullResult,
           duration: Date.now() - startTime.getTime(),
         });
 
-        return result;
+        return fullResult;
       } catch (error) {
         // Send failure alert
         await alertsService.sendAlert('sync_failure', {

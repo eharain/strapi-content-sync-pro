@@ -38,7 +38,7 @@ export const HelpTab = () => {
       <Box paddingBottom={4}>
         <Typography variant="beta" tag="h2">Plugin Documentation</Typography>
         <Typography variant="omega" textColor="neutral600">
-          Complete guide for configuring and using the Content Sync Pro plugin.
+          End-to-end guide for configuring, securing, and operating Content Sync Pro across Strapi environments.
         </Typography>
       </Box>
 
@@ -124,9 +124,10 @@ export const HelpTab = () => {
               <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
                 <li><Typography variant="omega">Bi-directional sync (push, pull, or both)</Typography></li>
                 <li><Typography variant="omega">Sync Profiles for defining WHAT to sync</Typography></li>
-                <li><Typography variant="omega">Execution modes: On-demand, Scheduled, or Live (real-time)</Typography></li>
+                <li><Typography variant="omega">Execution modes: On-demand, Scheduled, Live, or External scheduler</Typography></li>
                 <li><Typography variant="omega">Field-level sync policies (Advanced mode)</Typography></li>
                 <li><Typography variant="omega">Conflict resolution strategies (Latest, Local, Remote wins)</Typography></li>
+                <li><Typography variant="omega">Pagination support for large datasets with bounded memory usage</Typography></li>
                 <li><Typography variant="omega">Dependency resolution - sync related entities automatically</Typography></li>
                 <li><Typography variant="omega">Enforcement checks - schema, version, and time validation</Typography></li>
                 <li><Typography variant="omega">Configurable alerts via email, webhook, or Strapi logs</Typography></li>
@@ -148,10 +149,10 @@ export const HelpTab = () => {
 
             <HelpSection title="Quick Start">
               <ol style={{ paddingLeft: '20px', lineHeight: '2' }}>
-                <li><Typography variant="omega"><strong>Configuration Tab</strong> - Set up remote server URL, API token, and shared secret</Typography></li>
+                <li><Typography variant="omega"><strong>Configuration Tab</strong> - Set up remote server URL, API token, instance ID, and shared secret</Typography></li>
                 <li><Typography variant="omega"><strong>Content Types Tab</strong> - Enable content types for sync (auto-generates default profiles)</Typography></li>
                 <li><Typography variant="omega"><strong>Sync Profiles Tab</strong> - Customize sync behavior or use defaults</Typography></li>
-                <li><Typography variant="omega"><strong>Sync Tab</strong> - Configure execution settings and run sync operations</Typography></li>
+                <li><Typography variant="omega"><strong>Sync Execution Tab</strong> - Configure execution settings, page size, and run sync operations</Typography></li>
               </ol>
             </HelpSection>
 
@@ -897,10 +898,10 @@ http://localhost:1337</CodeBlock>
               </Box>
 
               <Box background="danger100" padding={4} hasRadius marginBottom={4}>
-                <Typography variant="sigma" textColor="danger700">401 Unauthorized</Typography>
+                <Typography variant="sigma" textColor="danger700">401 Unauthorized / 403 Forbidden</Typography>
                 <Typography variant="omega" paddingTop={1}>
-                  The API token is invalid or expired. Generate a new token on the remote server and update
-                  Configuration → Connection → API Token.
+                  The API token is invalid, expired, or missing required permissions. Generate a new token on the remote
+                  server and ensure it can access the synced content types (and Upload permissions for media sync).
                 </Typography>
               </Box>
 
@@ -913,10 +914,10 @@ http://localhost:1337</CodeBlock>
               </Box>
 
               <Box background="danger100" padding={4} hasRadius marginBottom={4}>
-                <Typography variant="sigma" textColor="danger700">Content type not found on remote</Typography>
+                <Typography variant="sigma" textColor="danger700">Content type endpoint not found on remote</Typography>
                 <Typography variant="omega" paddingTop={1}>
-                  The content type exists locally but not on the remote server. Ensure both instances
-                  have matching content type definitions.
+                  The content type exists locally but the remote REST endpoint is missing or named differently.
+                  Ensure both instances have matching content type definitions and API routes are enabled.
                 </Typography>
               </Box>
 

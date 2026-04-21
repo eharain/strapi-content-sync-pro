@@ -251,10 +251,10 @@ module.exports = {
       // Step 4: Optionally get remote instance ID if plugin is installed
       let remoteInstanceId = null;
       try {
-        const remoteConfigResponse = await fetch(`${baseUrl}/api/${PLUGIN_ID}/config`, {
+        const remoteConfigResponse = await fetch(`${baseUrl}/strapi-content-sync-pro/config`, {
           method: 'GET',
           headers: {
-            Authorization: `Bearer ${apiToken}`,
+            Authorization: `Bearer ${adminJwt}`,
           },
         });
 
