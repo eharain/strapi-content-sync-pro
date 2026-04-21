@@ -35,6 +35,13 @@ const adminRoutes = [
   // Logs
   { method: 'GET', path: '/logs', handler: 'syncLog.find', config: { policies: [] } },
 
+  // Stats and retention
+  { method: 'GET',  path: '/stats/snapshot',  handler: 'syncStats.getSnapshot',  config: { policies: [] } },
+  { method: 'GET',  path: '/stats/reports',   handler: 'syncStats.getReports',   config: { policies: [] } },
+  { method: 'POST', path: '/stats/reports/clear', handler: 'syncStats.clearReports', config: { policies: [] } },
+  { method: 'POST', path: '/stats/retention/run', handler: 'syncStats.runRetention', config: { policies: [] } },
+  { method: 'POST', path: '/logs/clear', handler: 'syncLog.clear', config: { policies: [] } },
+
   // Sync Profiles
   { method: 'GET',    path: '/sync-profiles',                          handler: 'syncProfiles.find',                    config: { policies: [] } },
   { method: 'GET',    path: '/sync-profiles/:id',                      handler: 'syncProfiles.findOne',                 config: { policies: [] } },

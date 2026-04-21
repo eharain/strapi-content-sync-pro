@@ -53,4 +53,40 @@ module.exports = ({ strapi }) => ({
       },
     };
   },
+
+  async clearLogs() {
+    const existing = await strapi.documents(CONTENT_TYPE_UID).findMany({
+      fields: ['documentId'],
+      limit: 10000,
+      sort: { createdAt: 'desc' },
+    });
+
+    for (const entry of existing) {
+      if (!entry?.documentId) continue;
+      await strapi.documents(CONTENT_TYPE_UID).delete({ documentId: entry.documentId });
+    }
+
+    return { deleted: existing.length };
+  },
+
+  async applyRetention({ maxLogs = 2000 } = {}) {
+    const safeMax = Math.max(100, Number(maxLogs) || 2000);
+    const count = await strapi.documents(CONTENT_TYPE_UID).count();
+    if (count <= safeMax) return { pruned: 0, remaining: count };
+
+    const excess = count - safeMax;
+    const toDelete = await strapi.documents(CONTENT_TYPE_UID).findMany({
+      fields: ['documentId'],
+      sort: { createdAt: 'asc' },
+      limit: excess,
+      start: 0,
+    });
+
+    for (const entry of toDelete) {
+      if (!entry?.documentId) continue;
+      await strapi.documents(CONTENT_TYPE_UID).delete({ documentId: entry.documentId });
+    }
+
+    return { pruned: toDelete.length, remaining: count - toDelete.length };
+  },
 });

@@ -83,6 +83,7 @@ const SyncProfilesTab = () => {
   });
   const [schemaFields, setSchemaFields] = useState([]);
   const [loadingSchema, setLoadingSchema] = useState(false);
+  const [syncMode, setSyncMode] = useState('paired');
 
   // Sorted profiles
   const sortedProfiles = useMemo(() => {
@@ -202,15 +203,17 @@ const SyncProfilesTab = () => {
 
   const loadData = async () => {
     try {
-      const [profilesRes, ctRes, scRes] = await Promise.all([
+      const [profilesRes, ctRes, scRes, configRes] = await Promise.all([
         get(`/${PLUGIN_ID}/sync-profiles`),
         get(`/${PLUGIN_ID}/content-types`),
         get(`/${PLUGIN_ID}/sync-config`),
+        get(`/${PLUGIN_ID}/config`),
       ]);
       setProfiles(profilesRes.data.data || []);
       setContentTypes(ctRes.data.data || []);
       const config = scRes.data.data || { contentTypes: [] };
       setEnabledTypes(config.contentTypes?.filter(ct => ct.enabled).map(ct => ct.uid) || []);
+      setSyncMode(configRes?.data?.data?.syncMode || 'paired');
     } catch (err) {
       console.error('Failed to load data', err);
       setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to load profiles' });
@@ -321,9 +324,13 @@ const SyncProfilesTab = () => {
       bidirectional: { direction: 'both', conflictStrategy: 'latest' },
     };
     const config = presetConfig[preset] || {};
+    const modeAdjusted = syncMode === 'single_side'
+      ? { direction: 'pull', conflictStrategy: config.conflictStrategy || 'remote_wins' }
+      : config;
+
     setFormData((prev) => ({
       ...prev,
-      ...config,
+      ...modeAdjusted,
       isSimple: true,
     }));
   };
@@ -346,6 +353,16 @@ const SyncProfilesTab = () => {
         ...formData,
         isSimple: createMode === 'simple',
       };
+
+      if (syncMode === 'single_side') {
+        payload.direction = 'pull';
+        if (!payload.isSimple && Array.isArray(payload.fieldPolicies)) {
+          payload.fieldPolicies = payload.fieldPolicies.map((fp) => ({
+            ...fp,
+            direction: fp.direction === 'none' ? 'none' : 'pull',
+          }));
+        }
+      }
 
       if (editingProfile) {
         await put(`/${PLUGIN_ID}/sync-profiles/${editingProfile.id}`, payload);
@@ -411,6 +428,14 @@ const SyncProfilesTab = () => {
           Create Profile
         </Button>
       </Flex>
+
+      {syncMode === 'single_side' && (
+        <Box paddingTop={4}>
+          <Alert variant="info" title="Single-side mode restrictions">
+            Profiles are pull-only in single-side mode. Push and bidirectional options are disabled and existing profiles are normalized to pull.
+          </Alert>
+        </Box>
+      )}
 
       {message && (
         <Box paddingTop={4}>
@@ -539,6 +564,7 @@ const SyncProfilesTab = () => {
                       {createMode === 'simple'
                         ? 'Choose a preset and configure basic options.'
                         : 'Configure individual field-level sync policies.'}
+                      {syncMode === 'single_side' && ' Single-side mode allows pull-only settings.'}
                     </Typography>
                   </Box>
                 </Box>
@@ -575,6 +601,7 @@ const SyncProfilesTab = () => {
                         variant={selectedPreset === preset.value ? 'default' : 'tertiary'}
                         onClick={() => handlePresetSelect(preset.value)}
                         size="S"
+                        disabled={syncMode === 'single_side' && preset.value !== 'full_pull'}
                       >
                         {preset.label}
                       </Button>
@@ -604,7 +631,11 @@ const SyncProfilesTab = () => {
                     onChange={(value) => setFormData((p) => ({ ...p, direction: value }))}
                   >
                     {DIRECTION_OPTIONS.map((opt) => (
-                      <SingleSelectOption key={opt.value} value={opt.value}>
+                      <SingleSelectOption
+                        key={opt.value}
+                        value={opt.value}
+                        disabled={syncMode === 'single_side' && opt.value !== 'pull'}
+                      >
                         {opt.label}
                       </SingleSelectOption>
                     ))}
@@ -683,7 +714,11 @@ const SyncProfilesTab = () => {
                               size="S"
                             >
                               {FIELD_DIRECTION_OPTIONS.map((opt) => (
-                                <SingleSelectOption key={opt.value} value={opt.value}>
+                                <SingleSelectOption
+                                  key={opt.value}
+                                  value={opt.value}
+                                  disabled={syncMode === 'single_side' && !['pull', 'none'].includes(opt.value)}
+                                >
                                   {opt.label}
                                 </SingleSelectOption>
                               ))}

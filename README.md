@@ -1,4 +1,4 @@
-# Content Sync Pro Plugin for Strapi
+ï»¿# Content Sync Pro Plugin for Strapi
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/logo-horizontal.svg" alt="Content Sync Pro" width="720" />
@@ -14,7 +14,7 @@ A powerful Strapi v5 plugin to copy, migrate, and live-sync content, media, and 
 Plugin intro: https://youtu.be/hr3dD6dLgLQ
 
 <a href="https://youtu.be/hr3dD6dLgLQ" target="_blank" rel="noopener noreferrer">
-  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro — watch the intro video" width="100%" />
+  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro â€” watch the intro video" width="100%" />
 </a>
 
 ## Screenshots
@@ -50,7 +50,8 @@ Plugin intro: https://youtu.be/hr3dD6dLgLQ
 
 ## Features
 
-- **Bi-directional Content Sync** - Push, pull, or sync both ways (Local wins, Remote wins, or Latest wins).
+- **Deployment Modes** - Paired mode (plugin on both servers) or Single-side mode (plugin only on local server).
+- **Bi-directional Content Sync** - Push, pull, or sync both ways (Local wins, Remote wins, or Latest wins) in paired mode.
 - **Media Sync** - Full media synchronization via HTTP (URL-based) or host-level file copy (`rsync`). Includes MIME type filtering and concurrency controls.
 - **Sync Profiles** - Define WHAT to sync with field-level control (Advanced mode) or preset modes.
 - **Execution Modes** - On-demand, Scheduled (interval, timeout, cron, or external scheduler), Live (real-time), with per-profile execution controls.
@@ -58,6 +59,8 @@ Plugin intro: https://youtu.be/hr3dD6dLgLQ
 - **Dependency Analytics** - Automatically detects and syncs related entities and components in the correct order.
 - **Enforcement Checks** - Pre-sync schema compatibility validation, version checks, and server time drift checks.
 - **Alerts & Logging** - Detailed sync logs. Receive success/failure alerts via Email (using Strapi's email provider) or Webhooks.
+- **Stats & Run Reports** - Local/remote counts and newest timestamps per content type, with before/after snapshots for each sync run.
+- **Retention Controls** - Manual clear and automatic retention limits for logs and run reports.
 - **Secure Communication** - API token authentication combined with HMAC-SHA256 request signing using a shared secret.
 
 ## Prerequisites
@@ -110,9 +113,12 @@ npm run develop
 
 ## Quick Start
 
-### Step 1: Install and Configure Connection
-Install and enable **strapi-content-sync-pro** on both local and remote Strapi servers.
-Then in the local **Configuration** tab, set the remote Base URL, API Token, Instance ID, and Shared Secret.
+### Step 1: Choose Deployment Mode and Configure Connection
+In **Configuration**, choose one mode:
+- **Paired**: install and enable plugin on both local and remote servers.
+- **Single-side**: install plugin only on local server (remote plugin routes not required).
+
+Then configure Base URL, API Token, Instance ID, and Shared Secret.
 
 ### Step 2: Enable Content Types
 In the **Content Types** tab, toggle on the content types you want to sync. Default profiles are auto-generated.
@@ -141,6 +147,20 @@ Configure individual field policies:
 - **Pull** - Field only pulls from remote
 - **Exclude** - Field is never synced
 
+## Deployment Modes
+
+### Paired mode
+- Plugin installed on both local and remote servers.
+- Supports push, pull, and bidirectional profiles.
+- Supports on-demand, scheduled, and live execution modes.
+- Connection test validates remote plugin endpoints.
+
+### Single-side mode
+- Plugin installed on local server only.
+- Pull-only profiles are enforced.
+- Live execution is disabled (use on-demand or scheduled).
+- Connection test validates remote reachability and API token access without requiring remote plugin routes.
+
 ## Execution Modes
 
 Configure **when** sync runs in the Sync tab:
@@ -164,14 +184,14 @@ Configure **when** sync runs in the Sync tab:
 
 Full media synchronization between Strapi instances:
 
-- **URL Strategy** (HTTP) — Works with any upload provider (local, S3, Cloudinary). Downloads and re-uploads via the Upload API.
-- **rsync Strategy** — Host-level file copy using the `rsync` binary. Fastest for local-provider setups with SSH access.
-- **Profile-based** — Create media sync profiles with direction, conflict strategy, MIME filters, filename patterns, and execution settings.
-- **DB + File Sync** — Syncs both the `plugin::upload.file` database rows and the actual file bytes.
+- **URL Strategy** (HTTP) â€” Works with any upload provider (local, S3, Cloudinary). Downloads and re-uploads via the Upload API.
+- **rsync Strategy** â€” Host-level file copy using the `rsync` binary. Fastest for local-provider setups with SSH access.
+- **Profile-based** â€” Create media sync profiles with direction, conflict strategy, MIME filters, filename patterns, and execution settings.
+- **DB + File Sync** â€” Syncs both the `plugin::upload.file` database rows and the actual file bytes.
 
 ## Enforcement
 
-Pre-sync validation (Configuration ? Enforcement):
+Pre-sync validation (Configuration â†’ Enforcement):
 
 - **Schema Match** - Verify content type schemas match (strict/compatible/none)
 - **Version Check** - Verify Strapi versions (exact/minor/major/none)
@@ -179,7 +199,7 @@ Pre-sync validation (Configuration ? Enforcement):
 
 ## Alerts
 
-Get notified of sync events (Configuration ? Alerts):
+Get notified of sync events (Configuration â†’ Alerts):
 
 - **Strapi Logs** - Logs to sync log and server console
 - **Email** - Requires Strapi email plugin configured
@@ -221,6 +241,18 @@ Sync products from a central catalog to multiple storefronts:
    - Create "Full Pull" profile for `api::product.product`
    - Set execution mode to "Scheduled" (every 5 minutes)
 
+## Stats & Data Management
+
+Use the **Stats** tab to review:
+- Local vs remote record count by content type
+- Newest record timestamp on each side
+- Which side is newest (local, remote, equal)
+- Before/after snapshots for each sync run report
+
+Retention controls:
+- Manual clear for logs and stats reports
+- Automatic pruning with configurable limits (max logs, max reports)
+
 ## Troubleshooting
 
 ### Common Issues
@@ -229,8 +261,9 @@ Sync products from a central catalog to multiple storefronts:
 |-------|----------|
 | "Remote server not configured" | Add Base URL and API Token in Configuration |
 | "401 Unauthorized / 403 Forbidden" | Regenerate API token and verify required permissions for synced content types (and Upload permissions for media) |
-| "HMAC verification failed" | Ensure shared secret matches on both instances |
-| "Content type endpoint not found" | Ensure matching content-type definitions and enabled API routes on both instances |
+| "HMAC verification failed" | Ensure shared secret matches on both instances in paired mode |
+| "Content type endpoint not found" | In paired mode, ensure matching content-type definitions and enabled API routes on both instances |
+| "Live mode not available" | Switch to paired mode, or use on-demand/scheduled in single-side mode |
 | "Schema mismatch" | Sync content type schemas or set enforcement to "compatible" |
 
 ### Viewing Logs
@@ -247,7 +280,7 @@ Check the **Logs** tab for detailed sync history including:
 - **Credential handling.** The optional "Generate Token" feature lets you authenticate to **your own** remote Strapi server to create an API token. Credentials are sent directly from your browser to your server via the plugin's backend proxy, used once, and **never stored** on disk, in the database, or in memory after the request completes.
 - **API Tokens** are encrypted at rest using Strapi's built-in store.
 - **HMAC-SHA256** signatures protect all inter-instance requests from tampering.
-- **Masked secrets** — API tokens and shared secrets are masked (`••••••••`) in all API responses.
+- **Masked secrets** â€” API tokens and shared secrets are masked (`â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢`) in all API responses.
 
 ## Contributing
 

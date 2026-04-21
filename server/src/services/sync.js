@@ -49,115 +49,141 @@ module.exports = ({ strapi }) => {
       const syncConfig = await syncConfigService.getSyncConfig();
       const enabledTypes = (syncConfig.contentTypes || []).filter((ct) => ct.enabled);
 
-      if (enabledTypes.length === 0) {
-        throw new Error('No content types configured for sync');
-      }
-
       // Pagination — remote + local fetches are chunked to keep memory bounded
       // for large datasets. Page size is a global setting tunable in the Sync tab.
       const globalExec = (await executionService.getGlobalSettings?.()) || {};
-      const pageSize = Number(globalExec.syncPageSize) || 100;
 
-      const timestamps = await getLastSyncTimestamps();
-      const conflictStrategy = syncConfig.conflictStrategy || 'latest';
-      const results = [];
+      const syncStatsService = plugin().service('syncStats');
+      const reportHandle = await syncStatsService.createRunReport({
+        runType: 'sync_now',
+        trigger: 'manual_sync_now',
+        contentTypes: enabledTypes.map((ct) => ct.uid),
+      });
 
-      for (const ctConfig of enabledTypes) {
-        const { uid, direction, fields } = ctConfig;
-        const lastSyncAt = timestamps[uid] || null;
-        const syncStartTime = new Date().toISOString();
-
-        // Get field-level policies from active profile (if any)
-        const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
-
-        try {
-          // Both sides are fetched in pages of `pageSize` records under the
-          // hood (see utils/fetcher.js). We aggregate per content-type because
-          // the comparator needs the full set to diff by syncId, but each
-          // network/DB call still only returns a bounded chunk.
-          const localRecords = await fetchLocalRecords(strapi, uid, { fields, lastSyncAt, pageSize });
-          const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields, lastSyncAt, pageSize });
-
-          const diff = compareRecords(localRecords, remoteRecords, {
-            direction,
-            conflictStrategy,
-          });
-
-          let pushed = 0;
-          let pulled = 0;
-          let errors = 0;
-
-          // Apply field policies to records before pushing/pulling
-          for (const { local } of diff.toPush) {
-            try {
-              const filteredRecord = syncProfilesService.filterFieldsByPolicy(local, fieldPolicies, 'push');
-              await applyRemote(remoteConfig, uid, filteredRecord, fields);
-              pushed++;
-            } catch (err) {
-              errors++;
-              await logService.log({ action: 'push', contentType: uid, syncId: local.syncId, direction: 'push', status: 'error', message: err.message });
-            }
-          }
-
-          for (const { remote } of diff.toPull) {
-            try {
-              const filteredRecord = syncProfilesService.filterFieldsByPolicy(remote, fieldPolicies, 'pull');
-              await applyLocal(strapi, uid, filteredRecord, fields);
-              pulled++;
-            } catch (err) {
-              errors++;
-              await logService.log({ action: 'pull', contentType: uid, syncId: remote.syncId, direction: 'pull', status: 'error', message: err.message });
-            }
-          }
-
-          for (const record of diff.toCreateRemote) {
-            try {
-              const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'push');
-              await applyRemote(remoteConfig, uid, filteredRecord, fields);
-              pushed++;
-            } catch (err) {
-              errors++;
-              await logService.log({ action: 'create_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
-            }
-          }
-
-          for (const record of diff.toCreateLocal) {
-            try {
-              const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'pull');
-              await applyLocal(strapi, uid, filteredRecord, fields);
-              pulled++;
-            } catch (err) {
-              errors++;
-              await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
-            }
-          }
-
-          await setLastSyncTimestamp(uid, syncStartTime);
-
-          const summary = { uid, pushed, pulled, errors, hasFieldPolicies: !!fieldPolicies };
-          results.push(summary);
-
-          await logService.log({
-            action: 'sync_complete',
-            contentType: uid,
-            direction,
-            status: errors > 0 ? 'partial' : 'success',
-            message: `Pushed: ${pushed}, Pulled: ${pulled}, Errors: ${errors}${fieldPolicies ? ' (with field policies)' : ''}`,
-            details: summary,
-          });
-        } catch (err) {
-          results.push({ uid, error: err.message });
-          await logService.log({
-            action: 'sync_error',
-            contentType: uid,
-            direction,
-            status: 'error',
-            message: err.message,
-          });
+      try {
+        if (enabledTypes.length === 0) {
+          throw new Error('No content types configured for sync');
         }
-      }
 
-      return { syncedAt: new Date().toISOString(), results };
+        const pageSize = Number(globalExec.syncPageSize) || 100;
+
+        const timestamps = await getLastSyncTimestamps();
+        const conflictStrategy = syncConfig.conflictStrategy || 'latest';
+        const results = [];
+
+        for (const ctConfig of enabledTypes) {
+          const { uid, direction, fields } = ctConfig;
+          const lastSyncAt = timestamps[uid] || null;
+          const syncStartTime = new Date().toISOString();
+
+          // Get field-level policies from active profile (if any)
+          const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
+
+          try {
+            // Both sides are fetched in pages of `pageSize` records under the
+            // hood (see utils/fetcher.js). We aggregate per content-type because
+            // the comparator needs the full set to diff by syncId, but each
+            // network/DB call still only returns a bounded chunk.
+            const localRecords = await fetchLocalRecords(strapi, uid, { fields, lastSyncAt, pageSize });
+            const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields, lastSyncAt, pageSize });
+
+            const diff = compareRecords(localRecords, remoteRecords, {
+              direction,
+              conflictStrategy,
+            });
+
+            let pushed = 0;
+            let pulled = 0;
+            let errors = 0;
+
+            // Apply field policies to records before pushing/pulling
+            for (const { local } of diff.toPush) {
+              try {
+                const filteredRecord = syncProfilesService.filterFieldsByPolicy(local, fieldPolicies, 'push');
+                await applyRemote(remoteConfig, uid, filteredRecord, fields);
+                pushed++;
+              } catch (err) {
+                errors++;
+                await logService.log({ action: 'push', contentType: uid, syncId: local.syncId, direction: 'push', status: 'error', message: err.message });
+              }
+            }
+
+            for (const { remote } of diff.toPull) {
+              try {
+                const filteredRecord = syncProfilesService.filterFieldsByPolicy(remote, fieldPolicies, 'pull');
+                await applyLocal(strapi, uid, filteredRecord, fields);
+                pulled++;
+              } catch (err) {
+                errors++;
+                await logService.log({ action: 'pull', contentType: uid, syncId: remote.syncId, direction: 'pull', status: 'error', message: err.message });
+              }
+            }
+
+            for (const record of diff.toCreateRemote) {
+              try {
+                const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'push');
+                await applyRemote(remoteConfig, uid, filteredRecord, fields);
+                pushed++;
+              } catch (err) {
+                errors++;
+                await logService.log({ action: 'create_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
+              }
+            }
+
+            for (const record of diff.toCreateLocal) {
+              try {
+                const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'pull');
+                await applyLocal(strapi, uid, filteredRecord, fields);
+                pulled++;
+              } catch (err) {
+                errors++;
+                await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
+              }
+            }
+
+            await setLastSyncTimestamp(uid, syncStartTime);
+
+            const summary = { uid, pushed, pulled, errors, hasFieldPolicies: !!fieldPolicies };
+            results.push(summary);
+
+            await logService.log({
+              action: 'sync_complete',
+              contentType: uid,
+              direction,
+              status: errors > 0 ? 'partial' : 'success',
+              message: `Pushed: ${pushed}, Pulled: ${pulled}, Errors: ${errors}${fieldPolicies ? ' (with field policies)' : ''}`,
+              details: summary,
+            });
+          } catch (err) {
+            results.push({ uid, error: err.message });
+            await logService.log({
+              action: 'sync_error',
+              contentType: uid,
+              direction,
+              status: 'error',
+              message: err.message,
+            });
+          }
+        }
+
+        const response = { syncedAt: new Date().toISOString(), results };
+        await syncStatsService.completeRunReport(reportHandle.reportId, {
+          status: 'success',
+          summary: response,
+        });
+        await plugin().service('syncLog').applyRetention({ maxLogs: globalExec.maxLogEntries });
+        await syncStatsService.applyRetention({ maxReports: globalExec.maxReportEntries });
+        return response;
+      } catch (err) {
+        await syncStatsService.completeRunReport(reportHandle.reportId, {
+          status: 'error',
+          summary: null,
+          error: err.message,
+        });
+        await plugin().service('syncLog').applyRetention({ maxLogs: globalExec.maxLogEntries });
+        await syncStatsService.applyRetention({ maxReports: globalExec.maxReportEntries });
+        throw err;
+      }
     },
 
     /**

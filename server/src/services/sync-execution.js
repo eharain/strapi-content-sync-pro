@@ -67,6 +67,8 @@ module.exports = ({ strapi }) => {
     retryOnFailure: true,
     retryAttempts: 3,
     retryDelayMs: 5000,
+    maxLogEntries: 2000,
+    maxReportEntries: 200,
     // Pagination for content-type sync fetches (local + remote). Larger pages
     // are faster but use more memory per chunk. 100 is a safe default.
     syncPageSize: 100,
@@ -74,6 +76,12 @@ module.exports = ({ strapi }) => {
 
   const VALID_EXECUTION_MODES = ['on_demand', 'scheduled', 'live'];
   const VALID_SCHEDULE_TYPES = ['interval', 'timeout', 'cron', 'external'];
+
+  async function getSyncMode() {
+    const configService = plugin().service('config');
+    const config = await configService.getConfig({ safe: false });
+    return config?.syncMode || 'paired';
+  }
 
   // Basic cron validator: 5 or 6 space-separated fields
   function isValidCronExpression(expr) {
@@ -156,6 +164,11 @@ module.exports = ({ strapi }) => {
         throw new Error(`Invalid schedule type "${executionSettings.scheduleType}". Must be one of: ${VALID_SCHEDULE_TYPES.join(', ')}`);
       }
 
+      const syncMode = await getSyncMode();
+      if (syncMode === 'single_side' && executionSettings.executionMode === 'live') {
+        throw new Error('Live execution mode is not available in single-side mode. Use on_demand or scheduled.');
+      }
+
       // Validate schedule interval (used by interval & timeout types)
       if (executionSettings.scheduleInterval !== undefined) {
         if (executionSettings.scheduleInterval < 1 || executionSettings.scheduleInterval > 1440) {
@@ -185,6 +198,11 @@ module.exports = ({ strapi }) => {
         ...executionSettings,
         updatedAt: new Date().toISOString(),
       };
+
+      if (syncMode === 'single_side' && merged.executionMode === 'live') {
+        merged.executionMode = 'on_demand';
+        merged.enabled = false;
+      }
       settings.profiles[profileId] = merged;
 
       // Calculate an advisory nextExecutionAt for scheduled mode
@@ -223,10 +241,19 @@ module.exports = ({ strapi }) => {
       const store = getStore();
       const settings = await this.getExecutionSettings();
 
-      settings.globalSettings = {
+      const next = {
         ...settings.globalSettings,
         ...globalSettings,
       };
+
+      if (next.maxLogEntries !== undefined && Number(next.maxLogEntries) < 100) {
+        throw new Error('maxLogEntries must be at least 100');
+      }
+      if (next.maxReportEntries !== undefined && Number(next.maxReportEntries) < 10) {
+        throw new Error('maxReportEntries must be at least 10');
+      }
+
+      settings.globalSettings = next;
 
       await store.set({ key: STORE_KEY, value: settings });
       return settings.globalSettings;
@@ -241,6 +268,7 @@ module.exports = ({ strapi }) => {
       const dependencyResolver = plugin().service('dependencyResolver');
       const alertsService = plugin().service('alerts');
       const logService = plugin().service('syncLog');
+      const syncStatsService = plugin().service('syncStats');
 
       const profile = await profilesService.getProfile(profileId);
       if (!profile) {
@@ -252,6 +280,11 @@ module.exports = ({ strapi }) => {
       const dependencyDepth = options.dependencyDepth ?? executionSettings.dependencyDepth ?? 1;
 
       const startTime = new Date();
+      const reportHandle = await syncStatsService.createRunReport({
+        runType: 'profile_execution',
+        trigger: executionSettings.executionMode || 'on_demand',
+        contentTypes: [profile.contentType],
+      });
 
       try {
         // Log execution start
@@ -301,6 +334,15 @@ module.exports = ({ strapi }) => {
         // Update last execution time
         await this.updateLastExecution(profileId);
 
+        await syncStatsService.completeRunReport(reportHandle.reportId, {
+          status: 'success',
+          summary: fullResult,
+        });
+
+        const globalSettings = await this.getGlobalSettings();
+        await logService.applyRetention({ maxLogs: globalSettings.maxLogEntries });
+        await syncStatsService.applyRetention({ maxReports: globalSettings.maxReportEntries });
+
         // Send success alert
         await alertsService.sendAlert('sync_success', {
           profile: profile.name,
@@ -311,6 +353,12 @@ module.exports = ({ strapi }) => {
 
         return fullResult;
       } catch (error) {
+        await syncStatsService.completeRunReport(reportHandle.reportId, {
+          status: 'error',
+          summary: null,
+          error: error.message,
+        });
+
         // Send failure alert
         await alertsService.sendAlert('sync_failure', {
           profile: profile.name,
@@ -543,23 +591,31 @@ module.exports = ({ strapi }) => {
       const profilesService = plugin().service('syncProfiles');
       const profiles = await profilesService.getProfiles();
 
+      const syncMode = await getSyncMode();
       const status = [];
       for (const profile of profiles) {
         const execSettings = settings.profiles[profile.id] || {};
         const handle = schedulerHandles[profile.id];
+        const executionMode = syncMode === 'single_side' && execSettings.executionMode === 'live'
+          ? 'on_demand'
+          : (execSettings.executionMode || 'on_demand');
+
         status.push({
           profileId: profile.id,
           profileName: profile.name,
           contentType: profile.contentType,
-          executionMode: execSettings.executionMode || 'on_demand',
+          executionMode,
           scheduleType: execSettings.scheduleType || null,
           scheduleInterval: execSettings.scheduleInterval || null,
           cronExpression: execSettings.cronExpression || null,
-          enabled: execSettings.enabled || false,
+          enabled: syncMode === 'single_side' && execSettings.executionMode === 'live'
+            ? false
+            : (execSettings.enabled || false),
           lastExecutedAt: execSettings.lastExecutedAt || null,
           nextExecutionAt: execSettings.nextExecutionAt || null,
           isSchedulerRunning: !!handle && !handle.external,
           isExternal: !!(handle && handle.external),
+          syncMode,
         });
       }
 

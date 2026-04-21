@@ -15,4 +15,10 @@ module.exports = {
 
     ctx.body = result;
   },
+
+  async clear(ctx) {
+    const service = strapi.plugin('strapi-content-sync-pro').service('syncLog');
+    const result = await service.clearLogs();
+    ctx.body = { data: result };
+  },
 };

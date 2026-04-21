@@ -30,6 +30,7 @@ const ConfigTab = () => {
         apiToken: '',
         instanceId: '',
         sharedSecret: '',
+        syncMode: 'paired',
     });
 
     // Login modal state
@@ -131,6 +132,7 @@ const ConfigTab = () => {
             if (config.apiToken && config.apiToken !== '••••••••') payload.apiToken = config.apiToken;
             if (config.instanceId) payload.instanceId = config.instanceId;
             if (config.sharedSecret && config.sharedSecret !== '••••••••') payload.sharedSecret = config.sharedSecret;
+            if (config.syncMode) payload.syncMode = config.syncMode;
 
             await post(`/${PLUGIN_ID}/config`, payload);
             setMessage({ type: 'success', text: 'Connection configuration saved' });
@@ -350,8 +352,8 @@ const ConfigTab = () => {
                     <Tabs.Content value="connection">
                         <Box>
                             <Box paddingBottom={4}>
-                                <Alert variant="info" title="Install on both servers">
-                                    Content Sync Pro must be installed and enabled on both the local and remote Strapi instances. Connection test validates remote reachability and token access, but sync behavior is controlled separately in Content Types, Sync Profiles, and Sync Execution settings.
+                                <Alert variant="info" title="Deployment mode">
+                                    In <strong>Paired</strong> mode, install Content Sync Pro on both local and remote servers. In <strong>Single-side</strong> mode, install on local only; remote plugin routes are not required. Connection test behavior and allowed sync/execution options follow the selected mode.
                                 </Alert>
                             </Box>
                             <Flex gap={6}>
@@ -421,6 +423,20 @@ const ConfigTab = () => {
                                                 onChange={(e) => setConfig((p) => ({ ...p, sharedSecret: e.target.value }))}
                                             />
                                             <Field.Hint>Must match exactly on both local and remote plugin configurations</Field.Hint>
+                                        </Field.Root>
+
+                                        <Field.Root>
+                                            <Field.Label>Sync Mode</Field.Label>
+                                            <SingleSelect
+                                                value={config.syncMode || 'paired'}
+                                                onChange={(value) => setConfig((p) => ({ ...p, syncMode: value }))}
+                                            >
+                                                <SingleSelectOption value="paired">Paired (plugin on both servers)</SingleSelectOption>
+                                                <SingleSelectOption value="single_side">Single-side (plugin only on local)</SingleSelectOption>
+                                            </SingleSelect>
+                                            <Field.Hint>
+                                                Paired mode supports push/pull/bidirectional and remote plugin validation. Single-side mode is pull-focused and does not require plugin routes on remote.
+                                            </Field.Hint>
                                         </Field.Root>
                                     </Flex>
                                 </Box>
