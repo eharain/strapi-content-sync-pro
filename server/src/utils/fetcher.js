@@ -123,10 +123,19 @@ async function fetchRemoteRecords(remoteConfig, uid, options = {}) {
  * e.g. "api::product.product" → "products"
  */
 function uidToPluralEndpoint(uid) {
+  const contentType = global.strapi?.contentTypes?.[uid];
+  const configuredPlural = contentType?.info?.pluralName;
+  if (configuredPlural) {
+    return configuredPlural;
+  }
+
   const parts = uid.split('.');
   const modelName = parts[parts.length - 1];
   if (modelName.endsWith('s')) return modelName;
   if (modelName.endsWith('y')) return modelName.slice(0, -1) + 'ies';
+  if (modelName.endsWith('ch') || modelName.endsWith('sh') || modelName.endsWith('x') || modelName.endsWith('z')) {
+    return modelName + 'es';
+  }
   return modelName + 's';
 }
 
