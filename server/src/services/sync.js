@@ -2,7 +2,7 @@
 
 const { fetchLocalRecords, fetchRemoteRecords } = require('../utils/fetcher');
 const { compareRecords } = require('../utils/comparator');
-const { applyLocal, applyRemote } = require('../utils/applier');
+const { applyLocal, applyRemote, deleteLocal, deleteRemote } = require('../utils/applier');
 
 const LAST_SYNC_STORE_KEY = 'last-sync-timestamps';
 
@@ -87,9 +87,13 @@ module.exports = ({ strapi }) => {
             const localRecords = await fetchLocalRecords(strapi, uid, { fields, lastSyncAt, pageSize });
             const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields, lastSyncAt, pageSize });
 
+            const profileForOptions = await syncProfilesService.getActiveProfileForContentType(uid);
+            const syncDeletions = !!(profileForOptions?.syncDeletions);
+
             const diff = compareRecords(localRecords, remoteRecords, {
               direction,
               conflictStrategy,
+              syncDeletions,
             });
 
             let pushed = 0;
@@ -138,6 +142,26 @@ module.exports = ({ strapi }) => {
               } catch (err) {
                 errors++;
                 await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
+              }
+            }
+
+            for (const record of diff.toDeleteRemote) {
+              try {
+                await deleteRemote(remoteConfig, uid, record);
+                await logService.log({ action: 'delete_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'success', message: `Deleted remote record ${record.syncId}` });
+              } catch (err) {
+                errors++;
+                await logService.log({ action: 'delete_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
+              }
+            }
+
+            for (const record of diff.toDeleteLocal) {
+              try {
+                await deleteLocal(strapi, uid, record);
+                await logService.log({ action: 'delete_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'success', message: `Deleted local record ${record.syncId}` });
+              } catch (err) {
+                errors++;
+                await logService.log({ action: 'delete_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
               }
             }
 
@@ -217,6 +241,7 @@ module.exports = ({ strapi }) => {
 
       const direction = profile?.direction || ctConfig.direction || 'both';
       const conflictStrategy = profile?.conflictStrategy || syncConfig.conflictStrategy || 'latest';
+      const syncDeletions = !!(profile?.syncDeletions);
       const fields = ctConfig.fields || [];
 
       // Field-level policies: prefer the policies on the provided profile,
@@ -248,7 +273,7 @@ module.exports = ({ strapi }) => {
         const localRecords = await fetchLocalRecords(strapi, uid, { fields, lastSyncAt, pageSize });
         const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields, lastSyncAt, pageSize });
 
-        const diff = compareRecords(localRecords, remoteRecords, { direction, conflictStrategy });
+        const diff = compareRecords(localRecords, remoteRecords, { direction, conflictStrategy, syncDeletions });
 
         for (const { local } of diff.toPush) {
           try {
@@ -291,6 +316,26 @@ module.exports = ({ strapi }) => {
           } catch (err) {
             errors++;
             await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
+          }
+        }
+
+        for (const record of diff.toDeleteRemote) {
+          try {
+            await deleteRemote(remoteConfig, uid, record);
+            await logService.log({ action: 'delete_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'success', message: `Deleted remote record ${record.syncId}` });
+          } catch (err) {
+            errors++;
+            await logService.log({ action: 'delete_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
+          }
+        }
+
+        for (const record of diff.toDeleteLocal) {
+          try {
+            await deleteLocal(strapi, uid, record);
+            await logService.log({ action: 'delete_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'success', message: `Deleted local record ${record.syncId}` });
+          } catch (err) {
+            errors++;
+            await logService.log({ action: 'delete_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
           }
         }
 
@@ -378,32 +423,47 @@ module.exports = ({ strapi }) => {
      * Step 9 — Receive a record pushed from a remote instance.
      * Now supports field-level policies.
      */
-    async receiveRecord(uid, data, syncId) {
+    async receiveRecord(uid, data, syncId, isDelete = false, documentId = null) {
       const logService = plugin().service('syncLog');
       const syncProfilesService = plugin().service('syncProfiles');
 
-      // Get field-level policies from active profile (if any)
-      const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
-      const filteredData = syncProfilesService.filterFieldsByPolicy(data, fieldPolicies, 'pull');
+      const key = documentId || syncId;
 
       try {
-        await applyLocal(strapi, uid, { ...filteredData, syncId }, []);
+        if (isDelete) {
+          await deleteLocal(strapi, uid, { documentId, syncId });
+          await logService.log({
+            action: 'receive_delete',
+            contentType: uid,
+            syncId: key,
+            direction: 'pull',
+            status: 'success',
+            message: `Delete received for ${key} from remote`,
+          });
+          return { success: true, deleted: true };
+        }
+
+        // Get field-level policies from active profile (if any)
+        const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
+        const filteredData = syncProfilesService.filterFieldsByPolicy(data, fieldPolicies, 'pull');
+
+        await applyLocal(strapi, uid, { ...filteredData, documentId, syncId }, []);
 
         await logService.log({
           action: 'receive',
           contentType: uid,
-          syncId,
+          syncId: key,
           direction: 'pull',
           status: 'success',
-          message: `Record ${syncId} received from remote${fieldPolicies ? ' (with field policies)' : ''}`,
+          message: `Record ${key} received from remote${fieldPolicies ? ' (with field policies)' : ''}`,
         });
 
         return { success: true };
       } catch (err) {
         await logService.log({
-          action: 'receive',
+          action: isDelete ? 'receive_delete' : 'receive',
           contentType: uid,
-          syncId,
+          syncId: key,
           direction: 'pull',
           status: 'error',
           message: err.message,

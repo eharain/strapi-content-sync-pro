@@ -9,9 +9,109 @@ module.exports = ({ strapi }) => {
     return strapi.plugin('strapi-content-sync-pro');
   }
 
+  // Strapi upload's polymorphic join table name differs across versions
+  // (`files_related_morphs` on older builds, `files_related_mph` on v5).
+  // Resolve it from ORM metadata so stats work on both.
+  let _morphTableCache = null;
+  function resolveMorphTable() {
+    if (_morphTableCache) return _morphTableCache;
+    const candidates = [];
+    try {
+      const attr = strapi.db?.metadata?.get?.('plugin::upload.file')?.attributes?.related;
+      if (attr?.joinTable?.name) candidates.push(attr.joinTable.name);
+      if (attr?.pivotTable) candidates.push(attr.pivotTable);
+    } catch {
+      // ignore — fall back below
+    }
+    candidates.push('files_related_mph', 'files_related_morphs');
+    _morphTableCache = candidates.find((n) => !!n) || 'files_related_mph';
+    return _morphTableCache;
+  }
+
   async function getEnabledContentTypes() {
     const syncConfig = await plugin().service('syncConfig').getSyncConfig();
     return (syncConfig.contentTypes || []).filter((ct) => ct.enabled).map((ct) => ct.uid);
+  }
+
+  async function getMediaStatsLocal() {
+    const [count, newest] = await Promise.all([
+      strapi.db.query('plugin::upload.file').count(),
+      strapi.db.query('plugin::upload.file').findMany({
+        orderBy: { updatedAt: 'desc' },
+        limit: 1,
+        select: ['updatedAt'],
+      }),
+    ]);
+
+    const morphTable = resolveMorphTable();
+    const [morphCount, newestMorph] = await Promise.all([
+      strapi.db.connection(morphTable).count({ id: 'id' }).first().then((r) => Number(r?.id || 0)).catch(() => 0),
+      strapi.db.connection(morphTable).orderBy('id', 'desc').first().catch(() => null),
+    ]);
+
+    return {
+      fileCount: Number(count || 0),
+      fileNewestUpdatedAt: newest?.[0]?.updatedAt || null,
+      morphCount: Number(morphCount || 0),
+      morphNewestUpdatedAt: newestMorph?.created_at || newestMorph?.updated_at || null,
+      error: null,
+    };
+  }
+
+  async function getMediaStatsRemote(remoteConfig) {
+    const { baseUrl, apiToken } = remoteConfig || {};
+    if (!baseUrl || !apiToken) {
+      return {
+        fileCount: null,
+        fileNewestUpdatedAt: null,
+        morphCount: null,
+        morphNewestUpdatedAt: null,
+        error: 'Remote server is not configured',
+      };
+    }
+
+    try {
+      const countUrl = new URL('/api/upload/files', baseUrl);
+      countUrl.searchParams.set('pagination[page]', '1');
+      countUrl.searchParams.set('pagination[pageSize]', '1');
+      countUrl.searchParams.set('fields[0]', 'updatedAt');
+      const countRes = await fetch(countUrl.toString(), {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+      });
+      if (!countRes.ok) {
+        return { fileCount: null, fileNewestUpdatedAt: null, morphCount: null, morphNewestUpdatedAt: null, error: `Remote media fetch failed (${countRes.status})` };
+      }
+      const countBody = await countRes.json();
+      const fileCount = countBody?.meta?.pagination?.total ?? null;
+
+      const newestUrl = new URL('/api/upload/files', baseUrl);
+      newestUrl.searchParams.set('pagination[page]', '1');
+      newestUrl.searchParams.set('pagination[pageSize]', '1');
+      newestUrl.searchParams.set('sort', 'updatedAt:desc');
+      newestUrl.searchParams.set('fields[0]', 'updatedAt');
+      const newestRes = await fetch(newestUrl.toString(), {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+      });
+      if (!newestRes.ok) {
+        return { fileCount, fileNewestUpdatedAt: null, morphCount: null, morphNewestUpdatedAt: null, error: `Remote media newest fetch failed (${newestRes.status})` };
+      }
+
+      const newestBody = await newestRes.json();
+      const fileNewestUpdatedAt = newestBody?.data?.[0]?.updatedAt || null;
+
+      // Morph rows are internal DB relations; not exposed by core upload REST.
+      return {
+        fileCount,
+        fileNewestUpdatedAt,
+        morphCount: null,
+        morphNewestUpdatedAt: null,
+        error: null,
+      };
+    } catch (err) {
+      return { fileCount: null, fileNewestUpdatedAt: null, morphCount: null, morphNewestUpdatedAt: null, error: err.message };
+    }
   }
 
   async function fetchRemoteStats(remoteConfig, uid) {
@@ -96,6 +196,7 @@ module.exports = ({ strapi }) => {
         const remote = await fetchRemoteStats(remoteConfig, uid);
         rows.push({
           uid,
+          type: 'content',
           localCount,
           remoteCount: remote.count,
           localNewestUpdatedAt,
@@ -105,6 +206,32 @@ module.exports = ({ strapi }) => {
           remoteError: remote.error,
         });
       }
+
+      const localMedia = await getMediaStatsLocal();
+      const remoteMedia = await getMediaStatsRemote(remoteConfig);
+      rows.push({
+        uid: 'plugin::upload.file',
+        type: 'media_file',
+        localCount: localMedia.fileCount,
+        remoteCount: remoteMedia.fileCount,
+        localNewestUpdatedAt: localMedia.fileNewestUpdatedAt,
+        remoteNewestUpdatedAt: remoteMedia.fileNewestUpdatedAt,
+        newestSide: whereNewest(localMedia.fileNewestUpdatedAt, remoteMedia.fileNewestUpdatedAt),
+        localError: localMedia.error,
+        remoteError: remoteMedia.error,
+      });
+
+      rows.push({
+        uid: 'upload.morph',
+        type: 'media_morph',
+        localCount: localMedia.morphCount,
+        remoteCount: remoteMedia.morphCount,
+        localNewestUpdatedAt: localMedia.morphNewestUpdatedAt,
+        remoteNewestUpdatedAt: remoteMedia.morphNewestUpdatedAt,
+        newestSide: whereNewest(localMedia.morphNewestUpdatedAt, remoteMedia.morphNewestUpdatedAt),
+        localError: localMedia.error,
+        remoteError: remoteMedia.morphCount === null ? 'Remote morph stats are unavailable via public API' : remoteMedia.error,
+      });
 
       return {
         generatedAt: new Date().toISOString(),

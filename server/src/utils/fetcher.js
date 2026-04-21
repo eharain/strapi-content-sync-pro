@@ -19,7 +19,7 @@ async function fetchLocalPage(strapi, uid, { fields, lastSyncAt, page = 1, pageS
   }
 
   if (fields && fields.length > 0) {
-    params.fields = [...new Set([...fields, 'syncId', 'updatedAt'])];
+    params.fields = [...new Set([...fields, 'documentId', 'syncId', 'updatedAt'])];
   }
 
   const records = (await strapi.documents(uid).findMany(params)) || [];
@@ -37,7 +37,7 @@ async function fetchRemotePage(remoteConfig, uid, { fields, lastSyncAt, page = 1
   const url = new URL(`/api/${pluralName}`, baseUrl);
 
   if (fields && fields.length > 0) {
-    const allFields = [...new Set([...fields, 'syncId', 'updatedAt'])];
+    const allFields = [...new Set([...fields, 'documentId', 'syncId', 'updatedAt'])];
     allFields.forEach((f, i) => {
       url.searchParams.set(`fields[${i}]`, f);
     });

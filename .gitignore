@@ -364,3 +364,6 @@ FodyWeavers.xsd
 /test-enviroments-setup.txt
 /.github/copilot-instructions.md
 /docs/clipchamp-screen-recording-script.md
+*.sql
+*.tsv
+*.txt

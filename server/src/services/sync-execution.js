@@ -304,6 +304,19 @@ module.exports = ({ strapi }) => {
             .filter((uid) => uid !== profile.contentType && uid.startsWith('api::') && !!strapi.contentTypes[uid]);
 
           for (const dependencyUid of dependencyOrder) {
+            const syncConfigService = plugin().service('syncConfig');
+            const syncConfig = await syncConfigService.getSyncConfig();
+            const depEnabled = (syncConfig.contentTypes || []).some((ct) => ct.uid === dependencyUid && ct.enabled);
+            if (!depEnabled) {
+              dependencyResults.push({
+                uid: dependencyUid,
+                profile: null,
+                skipped: true,
+                reason: 'dependency content-type not enabled for sync',
+              });
+              continue;
+            }
+
             const dependencyProfile = await profilesService.getActiveProfileForContentType(dependencyUid);
             const dependencyResult = await syncService.syncContentType(dependencyUid, {
               profile: dependencyProfile,

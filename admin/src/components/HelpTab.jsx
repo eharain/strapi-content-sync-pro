@@ -645,6 +645,10 @@ http://localhost:1337</CodeBlock>
               <Typography variant="omega">
                 Each profile can sync two distinct aspects of media:
               </Typography>
+              <Typography variant="omega" paddingTop={2}>
+                For entity-linked media consistency, this plugin also syncs media morph links using <strong>documentId-based remapping</strong>
+                (file documentId and related entity documentId are resolved to local numeric ids before insert).
+              </Typography>
               <Box background="neutral100" padding={4} hasRadius marginTop={2} marginBottom={2}>
                 <Typography variant="sigma" textColor="neutral800">DB Rows (Metadata)</Typography>
                 <Typography variant="omega" paddingTop={1}>
@@ -664,6 +668,11 @@ http://localhost:1337</CodeBlock>
                 For complete media synchronization, enable <strong>both</strong> DB rows and file bytes.
                 If you only need metadata references (e.g., both sides use the same S3 bucket), you can
                 sync DB rows only.
+              </Typography>
+              <Typography variant="pi" textColor="neutral600" paddingTop={2}>
+                Note: Strapi components, repeatable components, and dynamic zones are already tracked by
+                document service sync using stable documentIds, so they do not require id-to-documentId remapping
+                like upload morph tables do.
               </Typography>
             </HelpSection>
 
@@ -738,24 +747,51 @@ http://localhost:1337</CodeBlock>
           <Box paddingTop={4}>
             <HelpSection title="Database Stats Overview">
               <Typography variant="omega">
-                The Stats tab compares local and remote data state per content type. It shows record counts,
-                newest timestamps, and which side currently has the newest data.
+                The Stats tab compares local and remote data state per content type, including content
+                entries, media files, and media morph (relation) links. The view is split into two
+                sub-tabs: <strong>Current Snapshot</strong> and <strong>Run Reports</strong>.
               </Typography>
             </HelpSection>
 
-            <HelpSection title="Run Reports (Before vs After)">
+            <HelpSection title="Current Snapshot Tab">
+              <Typography variant="omega">
+                Shows the latest live counts and newest timestamps per content type, with the newest
+                side (local / remote / equal) highlighted. Use the controls above the table to drill in:
+              </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><Typography variant="omega"><strong>Search</strong> - Filter rows by UID substring.</Typography></li>
+                <li><Typography variant="omega"><strong>Type</strong> - Filter by Content, Media, or Media Morph.</Typography></li>
+                <li><Typography variant="omega"><strong>Newest side</strong> - Show only rows where local, remote, or both are newest.</Typography></li>
+                <li><Typography variant="omega"><strong>Page size / pagination</strong> - Browse large snapshots without scrolling.</Typography></li>
+              </ul>
+            </HelpSection>
+
+            <HelpSection title="Run Reports Tab (Before vs After)">
               <Typography variant="omega">
                 Before every sync run, the plugin captures a pre-run snapshot. After the run completes,
-                it captures a post-run snapshot and stores both in a report. This helps you review sync impact
+                it captures a post-run snapshot and stores both in a report so you can review sync impact
                 and trends over time.
               </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><Typography variant="omega"><strong>Status filter</strong> - Show all runs, or only success / failed.</Typography></li>
+                <li><Typography variant="omega"><strong>Page size / pagination</strong> - Reports are paginated server-side.</Typography></li>
+                <li><Typography variant="omega"><strong>Show details</strong> - Expand a report card to see the before/after row tables (first {25} rows per side).</Typography></li>
+              </ul>
             </HelpSection>
 
-            <HelpSection title="Retention & Cleanup Controls">
+            <HelpSection title="Top Action Row: Refresh, Clear & Retention">
               <Typography variant="omega">
-                To control storage growth, use manual clear actions for logs and reports, and configure
-                automatic retention limits (maximum log entries and report entries). Older data is pruned
-                when limits are exceeded.
+                The top of the Stats tab exposes the controls that apply to both sub-tabs:
+              </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><Typography variant="omega"><strong>Refresh Stats</strong> - Reload the snapshot and reports.</Typography></li>
+                <li><Typography variant="omega"><strong>Clear Logs</strong> - Remove stored sync logs.</Typography></li>
+                <li><Typography variant="omega"><strong>Clear Stats Reports</strong> - Remove all before/after run reports.</Typography></li>
+                <li><Typography variant="omega"><strong>Max Logs / Max Reports</strong> - Retention limits; older entries are pruned when exceeded.</Typography></li>
+                <li><Typography variant="omega"><strong>Save &amp; Apply Retention</strong> - Persists the limits and immediately prunes old data.</Typography></li>
+              </ul>
+              <Typography variant="pi" textColor="neutral600" paddingTop={2}>
+                Retention is also enforced automatically after each sync run.
               </Typography>
             </HelpSection>
           </Box>
