@@ -188,6 +188,7 @@ Full media synchronization between Strapi instances:
 - **rsync Strategy** — Host-level file copy using the `rsync` binary. Fastest for local-provider setups with SSH access.
 - **Profile-based** — Create media sync profiles with direction, conflict strategy, MIME filters, filename patterns, and execution settings.
 - **DB + File Sync** — Syncs both the `plugin::upload.file` database rows and the actual file bytes.
+- **Morph Link Remapping** — Syncs `files_related_morphs` links by mapping file + related entities through documentId, then remapping to local numeric ids before insert.
 
 ## Enforcement
 
@@ -243,15 +244,21 @@ Sync products from a central catalog to multiple storefronts:
 
 ## Stats & Data Management
 
-Use the **Stats** tab to review:
-- Local vs remote record count by content type
-- Newest record timestamp on each side
-- Which side is newest (local, remote, equal)
-- Before/after snapshots for each sync run report
+The **Stats** tab is split into two sub-tabs:
 
-Retention controls:
-- Manual clear for logs and stats reports
-- Automatic pruning with configurable limits (max logs, max reports)
+**Current Snapshot** — live local vs remote state per content type:
+- Local vs remote record count
+- Media files and media morph stats (local, plus remote where available)
+- Newest record timestamp on each side and which side is newest (local, remote, equal)
+- Search by UID, filter by type (content / media / media morph) or newest side, and paginate large result sets
+
+**Run Reports** — before/after snapshots captured for each sync run:
+- Filter by status (all / success / failed) and paginate server-side
+- Expand any report to see the before and after row tables
+
+A top action row (shared by both sub-tabs) provides:
+- **Refresh Stats**, **Clear Logs**, **Clear Stats Reports**
+- **Max Logs** / **Max Reports** retention limits with **Save & Apply Retention** (also enforced automatically after each sync run)
 
 ## Troubleshooting
 

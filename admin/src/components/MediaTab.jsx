@@ -400,6 +400,13 @@ const MediaTab = () => {
             {status?.lastResult && (
               <Box paddingTop={3} background="neutral0" padding={4} hasRadius shadow="tableShadow">
                 <Typography variant="sigma">Last Run Result</Typography>
+                {(status.lastResult.morphLinksApplied !== undefined || status.lastResult.morphLinksSkipped !== undefined) && (
+                  <Box paddingTop={2} paddingBottom={2}>
+                    <Typography variant="omega" textColor="neutral700">
+                      Morph links synced: applied {status.lastResult.morphLinksApplied || 0}, skipped {status.lastResult.morphLinksSkipped || 0}
+                    </Typography>
+                  </Box>
+                )}
                 <Typography variant="pi" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
                   {JSON.stringify(status.lastResult, null, 2)}
                 </Typography>

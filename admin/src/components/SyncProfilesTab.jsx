@@ -77,6 +77,7 @@ const SyncProfilesTab = () => {
     contentType: '',
     direction: 'both',
     conflictStrategy: 'latest',
+    syncDeletions: false,
     isActive: false,
     isSimple: true,
     fieldPolicies: [],
@@ -290,6 +291,7 @@ const SyncProfilesTab = () => {
       contentType: '',
       direction: 'both',
       conflictStrategy: 'latest',
+      syncDeletions: false,
       isActive: false,
       isSimple: true,
       fieldPolicies: [],
@@ -306,6 +308,7 @@ const SyncProfilesTab = () => {
       contentType: profile.contentType,
       direction: profile.direction || 'both',
       conflictStrategy: profile.conflictStrategy || 'latest',
+      syncDeletions: !!profile.syncDeletions,
       isActive: profile.isActive,
       isSimple: profile.isSimple !== false,
       fieldPolicies: profile.fieldPolicies || [],
@@ -509,7 +512,12 @@ const SyncProfilesTab = () => {
                   </Td>
                   <Td><Typography fontWeight="bold">{profile.name}</Typography></Td>
                   <Td><Typography textColor="neutral600">{getContentTypeName(profile.contentType)}</Typography></Td>
-                  <Td><Badge>{getDirectionLabel(profile.direction)}</Badge></Td>
+                  <Td>
+                    <Flex gap={1} alignItems="center">
+                      <Badge>{getDirectionLabel(profile.direction)}</Badge>
+                      {profile.syncDeletions && <Badge active>Deletes</Badge>}
+                    </Flex>
+                  </Td>
                   <Td><Badge>{profile.conflictStrategy}</Badge></Td>
                   <Td>
                     <Badge active={!profile.isSimple}>
@@ -659,6 +667,21 @@ const SyncProfilesTab = () => {
                   </SingleSelect>
                   <Field.Hint>How to resolve when the same record is modified on both sides</Field.Hint>
                 </Field.Root>
+              </Box>
+
+              {/* Deletions Toggle */}
+              <Box paddingBottom={4}>
+                <Checkbox
+                  checked={formData.syncDeletions}
+                  onCheckedChange={(checked) => setFormData((p) => ({ ...p, syncDeletions: checked }))}
+                >
+                  Sync Deletions (exclusive)
+                </Checkbox>
+                <Box paddingTop={1}>
+                  <Typography variant="pi" textColor="neutral500">
+                    When enabled, missing records are treated as deletions and propagated one-way based on profile direction.
+                  </Typography>
+                </Box>
               </Box>
 
               {/* Active Checkbox */}

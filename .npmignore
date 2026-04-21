@@ -37,3 +37,6 @@ npm-debug.log*
 FodyWeavers.xsd
 /test-enviroments-setup.txt
 /docs/clipchamp-screen-recording-script.md
+*.sql
+*.tsv
+*.txt

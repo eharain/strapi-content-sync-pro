@@ -79,6 +79,7 @@ module.exports = ({ strapi }) => {
         return {
           ...p,
           direction: 'pull',
+          syncDeletions: !!p.syncDeletions,
           fieldPolicies: Array.isArray(p.fieldPolicies)
             ? p.fieldPolicies.map((fp) => ({
                 ...fp,
@@ -149,6 +150,7 @@ module.exports = ({ strapi }) => {
           contentType: contentTypeUid,
           direction: 'push',
           conflictStrategy: 'local_wins',
+          syncDeletions: false,
           isActive: false,
           isSimple: true,
           fieldPolicies: [],
@@ -158,6 +160,7 @@ module.exports = ({ strapi }) => {
           contentType: contentTypeUid,
           direction: 'pull',
           conflictStrategy: 'remote_wins',
+          syncDeletions: false,
           isActive: false,
           isSimple: true,
           fieldPolicies: [],
@@ -167,6 +170,7 @@ module.exports = ({ strapi }) => {
           contentType: contentTypeUid,
           direction: 'both',
           conflictStrategy: 'latest',
+          syncDeletions: false,
           isActive: true, // Default active profile
           isSimple: true,
           fieldPolicies: [],
@@ -224,6 +228,7 @@ module.exports = ({ strapi }) => {
         contentType: profileData.contentType,
         direction: profileData.direction || 'both',
         conflictStrategy: profileData.conflictStrategy || 'latest',
+        syncDeletions: !!profileData.syncDeletions,
         isActive: profileData.isActive || false,
         isSimple: profileData.isSimple !== false, // Default to simple mode
         fieldPolicies: (profileData.fieldPolicies || []).map((fp) => ({
@@ -307,6 +312,7 @@ module.exports = ({ strapi }) => {
       const updatedProfile = {
         ...profiles[index],
         ...updates,
+        syncDeletions: updates.syncDeletions !== undefined ? !!updates.syncDeletions : profiles[index].syncDeletions,
         id: profiles[index].id, // prevent id change
         createdAt: profiles[index].createdAt, // preserve creation date
         updatedAt: new Date().toISOString(),
@@ -386,6 +392,7 @@ module.exports = ({ strapi }) => {
       return this.createProfile({
         ...presetConfig,
         contentType: contentTypeUid,
+        syncDeletions: false,
         isSimple: true,
         isActive: false,
         fieldPolicies: [],

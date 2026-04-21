@@ -13,6 +13,10 @@ const contentApiRoutes = [
   { method: 'GET',  path: '/enforcement/local-info',  handler: 'syncEnforcement.getLocalInfo',   config: { policies: [] } },
   { method: 'GET',  path: '/enforcement/schema/:uid', handler: 'syncEnforcement.getLocalSchema', config: { policies: [] } },
   { method: 'POST', path: '/receive',                 handler: 'sync.receive',                   config: { policies: [], auth: false, middlewares: [verifySignature] } },
+
+  // Media morph-link sync (called by the peer instance during runProfile)
+  { method: 'GET',  path: '/media-sync/morph-links',       handler: 'syncMedia.getMorphLinks',   config: { policies: [] } },
+  { method: 'POST', path: '/media-sync/morph-links/apply', handler: 'syncMedia.applyMorphLinks', config: { policies: [] } },
 ];
 
 const adminRoutes = [
@@ -88,6 +92,8 @@ const adminRoutes = [
   { method: 'POST',   path: '/media-sync/profiles/:id/activate', handler: 'syncMedia.activateProfile',    config: { policies: [] } },
   { method: 'POST',   path: '/media-sync/profiles/:id/run',     handler: 'syncMedia.runProfile',          config: { policies: [] } },
   { method: 'POST',   path: '/media-sync/run-active',           handler: 'syncMedia.runActiveProfiles',   config: { policies: [] } },
+  { method: 'GET',    path: '/media-sync/morph-links',          handler: 'syncMedia.getMorphLinks',       config: { policies: [] } },
+  { method: 'POST',   path: '/media-sync/morph-links/apply',    handler: 'syncMedia.applyMorphLinks',     config: { policies: [] } },
   { method: 'GET',    path: '/media-sync/global-settings',       handler: 'syncMedia.getGlobalSettings',  config: { policies: [] } },
   { method: 'PUT',    path: '/media-sync/global-settings',       handler: 'syncMedia.updateGlobalSettings', config: { policies: [] } },
   { method: 'GET',    path: '/media-sync/defaults',              handler: 'syncMedia.getDefaults',         config: { policies: [] } },

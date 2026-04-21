@@ -328,7 +328,7 @@ const SyncTab = () => {
   const openSettingsModal = async (profileId) => {
     try {
       const res = await get(`/${PLUGIN_ID}/sync-execution/settings/${profileId}`);
-      setExecutionSettings(res.data.data || {
+      const settings = res.data.data || {
         executionMode: 'on_demand',
         scheduleType: 'interval',
         scheduleInterval: 60,
@@ -336,7 +336,15 @@ const SyncTab = () => {
         enabled: false,
         syncDependencies: false,
         dependencyDepth: 1,
-      });
+      };
+
+      const profile = profiles.find((p) => p.id === profileId);
+      if (profile && profile.syncDeletions && settings.executionMode === 'live') {
+        settings.executionMode = 'on_demand';
+        settings.enabled = false;
+      }
+
+      setExecutionSettings(settings);
       setSelectedProfile(profileId);
       setSettingsModalOpen(true);
     } catch (err) {
@@ -348,6 +356,12 @@ const SyncTab = () => {
     try {
       const payload = { ...executionSettings };
       if (syncMode === 'single_side' && payload.executionMode === 'live') {
+        payload.executionMode = 'on_demand';
+        payload.enabled = false;
+      }
+
+      const selected = profiles.find((p) => p.id === selectedProfile);
+      if (selected?.syncDeletions && payload.executionMode === 'live') {
         payload.executionMode = 'on_demand';
         payload.enabled = false;
       }
@@ -458,6 +472,14 @@ const SyncTab = () => {
                 </Box>
               )}
 
+              {profiles.some((p) => p.syncDeletions) && (
+                <Box paddingTop={4}>
+                  <Alert variant="info" title="Deletion sync profile rules">
+                    Profiles with deletion sync enabled run as explicit one-way operations. Avoid live mode for these profiles.
+                  </Alert>
+                </Box>
+              )}
+
               {message && (
                 <Box paddingTop={4}>
                   <Alert variant={message.type} closeLabel="Close" onClose={() => setMessage(null)}>
@@ -491,7 +513,7 @@ const SyncTab = () => {
                       value={profileFilter}
                       onChange={setProfileFilter}
                       size="S"
-                      style={{ width: 150 }}
+                      style={{ width: 180 }}
                     >
                       {FILTER_OPTIONS.map(opt => (
                         <SingleSelectOption key={opt.value} value={opt.value}>
@@ -587,7 +609,7 @@ const SyncTab = () => {
                                     <ArrowDown />
                                   </IconButton>
                                 </Flex>
-                                <TextInput
+                                <TextInput 
                                   value={order}
                                   onChange={(e) => handleOrderChange(profile.id, e.target.value)}
                                   style={{ width: 50, textAlign: 'center' }}

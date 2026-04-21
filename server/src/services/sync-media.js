@@ -156,6 +156,31 @@ module.exports = ({ strapi }) => {
   }
 
   // ---------------------------------------------------------------------------
+  // Morph join-table resolution
+  // ---------------------------------------------------------------------------
+  // Strapi's upload plugin stores polymorphic file↔entity links in a morph
+  // join table whose name differs between Strapi versions (e.g.
+  // `files_related_morphs` on some v4 builds vs `files_related_mph` on
+  // Strapi v5). Resolve it from ORM metadata so the plugin works everywhere.
+  let _morphTableCache = null;
+  function resolveMorphTable() {
+    if (_morphTableCache) return _morphTableCache;
+    const candidates = [];
+    try {
+      const meta = strapi.db?.metadata?.get?.('plugin::upload.file');
+      const attr = meta?.attributes?.related;
+      if (attr?.joinTable?.name) candidates.push(attr.joinTable.name);
+      if (attr?.pivotTable) candidates.push(attr.pivotTable);
+    } catch {
+      // ignore — fall back to known names below
+    }
+    // Known historical defaults, most-recent first.
+    candidates.push('files_related_mph', 'files_related_morphs');
+    _morphTableCache = candidates.find((n) => !!n) || 'files_related_mph';
+    return _morphTableCache;
+  }
+
+  // ---------------------------------------------------------------------------
   // Profile CRUD
   // ---------------------------------------------------------------------------
 
@@ -408,6 +433,170 @@ module.exports = ({ strapi }) => {
     return 'needs_bytes';
   }
 
+  async function exportMorphLinks() {
+    const morphTable = resolveMorphTable();
+    const rows = await strapi.db.connection(morphTable).select('*');
+    const fileCache = new Map();
+    const relatedDocCache = new Map();
+    const out = [];
+
+    for (const row of rows) {
+      const fileId = Number(row.file_id);
+      if (!fileCache.has(fileId)) {
+        const file = await strapi.db.query('plugin::upload.file').findOne({
+          where: { id: fileId },
+          select: ['id', 'documentId'],
+        });
+        fileCache.set(fileId, file || null);
+      }
+
+      const file = fileCache.get(fileId);
+      if (!file?.documentId) continue;
+
+      const relatedType = row.related_type;
+      const relatedId = Number(row.related_id);
+      const relatedKey = `${relatedType}:${relatedId}`;
+
+      if (!relatedDocCache.has(relatedKey)) {
+        try {
+          const entity = await strapi.db.query(relatedType).findOne({
+            where: { id: relatedId },
+            select: ['id', 'documentId'],
+          });
+          relatedDocCache.set(relatedKey, entity?.documentId || null);
+        } catch {
+          relatedDocCache.set(relatedKey, null);
+        }
+      }
+
+      const relatedDocumentId = relatedDocCache.get(relatedKey);
+      if (!relatedDocumentId) continue;
+
+      out.push({
+        fileDocumentId: file.documentId,
+        relatedType,
+        relatedDocumentId,
+        field: row.field || null,
+        order: row.order || 1,
+      });
+    }
+
+    return out;
+  }
+
+  async function applyMorphLinks(links = []) {
+    const applied = [];
+    const skipped = [];
+    const errors = [];
+
+    for (const link of links) {
+      try {
+        if (!link?.fileDocumentId || !link?.relatedType || !link?.relatedDocumentId) {
+          skipped.push({ link, reason: 'missing required documentId fields' });
+          continue;
+        }
+
+        const file = await strapi.db.query('plugin::upload.file').findOne({
+          where: { documentId: link.fileDocumentId },
+          select: ['id', 'documentId'],
+        });
+        if (!file?.id) {
+          skipped.push({ link, reason: 'file documentId not found locally' });
+          continue;
+        }
+
+        let related = null;
+        try {
+          related = await strapi.db.query(link.relatedType).findOne({
+            where: { documentId: link.relatedDocumentId },
+            select: ['id', 'documentId'],
+          });
+        } catch {
+          skipped.push({ link, reason: 'related type not queryable locally' });
+          continue;
+        }
+
+        if (!related?.id) {
+          skipped.push({ link, reason: 'related documentId not found locally' });
+          continue;
+        }
+
+        const morphTable = resolveMorphTable();
+        let existsQ = strapi.db.connection(morphTable)
+          .where('file_id', file.id)
+          .andWhere('related_id', related.id)
+          .andWhere('related_type', link.relatedType);
+
+        if (link.field) existsQ = existsQ.andWhere('field', link.field);
+        else existsQ = existsQ.whereNull('field');
+
+        const existing = await existsQ.first();
+        if (existing) {
+          skipped.push({ link, reason: 'morph link already exists' });
+          continue;
+        }
+
+        await strapi.db.connection(morphTable).insert({
+          file_id: file.id,
+          related_id: related.id,
+          related_type: link.relatedType,
+          field: link.field || null,
+          order: link.order || 1,
+        });
+
+        applied.push(link);
+      } catch (err) {
+        errors.push({ link, error: err.message });
+      }
+    }
+
+    return {
+      total: links.length,
+      applied: applied.length,
+      skipped: skipped.length,
+      errors,
+    };
+  }
+
+  async function fetchRemoteMorphLinks(remoteConfig) {
+    const url = new URL('/api/strapi-content-sync-pro/media-sync/morph-links', remoteConfig.baseUrl);
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${remoteConfig.apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      const body = await safeReadBody(res);
+      throw new Error(`Remote morph-links fetch failed (${res.status}): ${body}`);
+    }
+
+    const json = await res.json();
+    return json?.data || [];
+  }
+
+  async function applyRemoteMorphLinks(remoteConfig, links = []) {
+    const url = new URL('/api/strapi-content-sync-pro/media-sync/morph-links/apply', remoteConfig.baseUrl);
+    const res = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${remoteConfig.apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ links }),
+    });
+
+    if (!res.ok) {
+      const body = await safeReadBody(res);
+      throw new Error(`Remote morph-links apply failed (${res.status}): ${body}`);
+    }
+
+    const json = await res.json();
+    return json?.data || { total: links.length, applied: 0, skipped: 0, errors: [] };
+  }
+
   // ---------------------------------------------------------------------------
   // URL strategy
   // ---------------------------------------------------------------------------
@@ -594,7 +783,7 @@ module.exports = ({ strapi }) => {
     const remoteConfig = await configService.getConfig({ safe: false });
     if (!remoteConfig?.baseUrl) throw new Error('Remote server not configured');
 
-    const totals = { pushed: 0, pulled: 0, skipped: 0, dbRowsUpdated: 0, errors: [] };
+    const totals = { pushed: 0, pulled: 0, skipped: 0, dbRowsUpdated: 0, morphLinksApplied: 0, morphLinksSkipped: 0, errors: [] };
     const started = Date.now();
 
     const localIndex = new Map();
@@ -631,6 +820,22 @@ module.exports = ({ strapi }) => {
       }
     }
 
+    if (profile.syncDbRows) {
+      try {
+        if (settings.direction === 'pull' || settings.direction === 'both') {
+          const remoteLinks = await fetchRemoteMorphLinks(remoteConfig);
+          const applyResult = await applyMorphLinks(remoteLinks);
+          totals.morphLinksApplied += applyResult.applied || 0;
+          totals.morphLinksSkipped += applyResult.skipped || 0;
+          if (Array.isArray(applyResult.errors) && applyResult.errors.length > 0) {
+            totals.errors.push(...applyResult.errors.map((e) => ({ name: 'morph_pull', error: e.error || 'morph apply error' })));
+          }
+        }
+      } catch (err) {
+        totals.errors.push({ name: 'morph_pull', error: err.message });
+      }
+    }
+
     // PUSH: local -> remote
     if (settings.direction === 'push' || settings.direction === 'both') {
       const remoteIndex = new Map();
@@ -663,6 +868,20 @@ module.exports = ({ strapi }) => {
         totals.pushed += result.success;
         totals.skipped += result.skipped;
         totals.errors.push(...result.errors);
+      }
+    }
+
+    if (profile.syncDbRows && (settings.direction === 'push' || settings.direction === 'both')) {
+      try {
+        const localLinks = await exportMorphLinks();
+        const applyRemoteResult = await applyRemoteMorphLinks(remoteConfig, localLinks);
+        totals.morphLinksApplied += applyRemoteResult.applied || 0;
+        totals.morphLinksSkipped += applyRemoteResult.skipped || 0;
+        if (Array.isArray(applyRemoteResult.errors) && applyRemoteResult.errors.length > 0) {
+          totals.errors.push(...applyRemoteResult.errors.map((e) => ({ name: 'morph_push', error: e.error || 'remote morph apply error' })));
+        }
+      } catch (err) {
+        totals.errors.push({ name: 'morph_push', error: err.message });
       }
     }
 
@@ -899,6 +1118,10 @@ module.exports = ({ strapi }) => {
     // Execution
     runProfile,
     runActiveProfiles,
+
+    // Morph link APIs (documentId-based)
+    exportMorphLinks,
+    applyMorphLinks,
 
     // Schedulers
     initializeSchedulers,

@@ -8,26 +8,33 @@
  * @param {Object} options
  * @param {string} options.direction        – "push" | "pull" | "both"
  * @param {string} options.conflictStrategy – "latest" | "local_wins" | "remote_wins"
- * @returns {{ toPush, toPull, toCreateRemote, toCreateLocal }}
+ * @param {boolean} options.syncDeletions   – propagate missing records as deletions
+ * @returns {{ toPush, toPull, toCreateRemote, toCreateLocal, toDeleteRemote, toDeleteLocal }}
  */
 function compareRecords(localRecords, remoteRecords, options = {}) {
-  const { direction = 'both', conflictStrategy = 'latest' } = options;
+  const { direction = 'both', conflictStrategy = 'latest', syncDeletions = false } = options;
 
   const result = {
     toPush: [],
     toPull: [],
     toCreateRemote: [],
     toCreateLocal: [],
+    toDeleteRemote: [],
+    toDeleteLocal: [],
   };
 
   const localBySyncId = new Map();
   const remoteBySyncId = new Map();
 
+  const keyOf = (r) => r && (r.documentId || r.syncId);
+
   for (const r of localRecords) {
-    if (r.syncId) localBySyncId.set(r.syncId, r);
+    const k = keyOf(r);
+    if (k) localBySyncId.set(k, r);
   }
   for (const r of remoteRecords) {
-    if (r.syncId) remoteBySyncId.set(r.syncId, r);
+    const k = keyOf(r);
+    if (k) remoteBySyncId.set(k, r);
   }
 
   // Records that exist on both sides
@@ -43,7 +50,11 @@ function compareRecords(localRecords, remoteRecords, options = {}) {
         result.toPull.push({ local: localRecord, remote: remoteRecord });
       }
     } else if (direction === 'push' || direction === 'both') {
-      result.toCreateRemote.push(localRecord);
+      if (syncDeletions && direction !== 'both') {
+        result.toDeleteRemote.push(localRecord);
+      } else {
+        result.toCreateRemote.push(localRecord);
+      }
     }
   }
 
@@ -51,7 +62,12 @@ function compareRecords(localRecords, remoteRecords, options = {}) {
   for (const [syncId] of remoteBySyncId) {
     if (!localBySyncId.has(syncId)) {
       if (direction === 'pull' || direction === 'both') {
-        result.toCreateLocal.push(remoteBySyncId.get(syncId));
+        const remoteRecord = remoteBySyncId.get(syncId);
+        if (syncDeletions && direction !== 'both') {
+          result.toDeleteLocal.push(remoteRecord);
+        } else {
+          result.toCreateLocal.push(remoteRecord);
+        }
       }
     }
   }

@@ -111,6 +111,25 @@ module.exports = ({ strapi }) => ({
     }
   },
 
+  // ── Morph link sync (documentId-based mapping) ───────────────────────────
+
+  async getMorphLinks(ctx) {
+    try {
+      ctx.body = { data: await service(strapi).exportMorphLinks() };
+    } catch (err) {
+      ctx.throw(500, err.message);
+    }
+  },
+
+  async applyMorphLinks(ctx) {
+    try {
+      const links = ctx.request.body?.links || [];
+      ctx.body = { data: await service(strapi).applyMorphLinks(links) };
+    } catch (err) {
+      ctx.throw(400, err.message);
+    }
+  },
+
   // ── Back-compat (old flat endpoints) ──────────────────────────────────────
 
   async getSettings(ctx) {
