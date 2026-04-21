@@ -12,6 +12,7 @@ const syncEnforcement = require('./sync-enforcement');
 const syncMedia = require('./sync-media');
 const alerts = require('./alerts');
 const dependencies = require('./dependencies');
+const syncStats = require('./sync-stats');
 
 module.exports = {
   ping,
@@ -26,4 +27,5 @@ module.exports = {
   syncMedia,
   alerts,
   dependencies,
+  syncStats,
 };

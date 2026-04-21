@@ -53,6 +53,7 @@ const SyncTab = () => {
   const [executionStatus, setExecutionStatus] = useState([]);
   const [globalSettings, setGlobalSettings] = useState({});
   const [loading, setLoading] = useState(true);
+  const [syncMode, setSyncMode] = useState('paired');
 
   // Filter and ordering
   const [profileFilter, setProfileFilter] = useState('all');
@@ -84,17 +85,19 @@ const SyncTab = () => {
 
   const loadData = async () => {
     try {
-      const [profilesRes, statusRes, globalRes, depsRes] = await Promise.all([
+      const [profilesRes, statusRes, globalRes, depsRes, configRes] = await Promise.all([
         get(`/${PLUGIN_ID}/sync-profiles`),
         get(`/${PLUGIN_ID}/sync-execution/status`),
         get(`/${PLUGIN_ID}/sync-execution/global-settings`),
         get(`/${PLUGIN_ID}/dependencies/all`).catch(() => ({ data: { data: {} } })),
+        get(`/${PLUGIN_ID}/config`),
       ]);
       const loadedProfiles = profilesRes.data.data || [];
       setProfiles(loadedProfiles);
       setExecutionStatus(statusRes.data.data || []);
       setGlobalSettings(globalRes.data.data || {});
       setDependencies(depsRes.data.data || {});
+      setSyncMode(configRes?.data?.data?.syncMode || 'paired');
 
       // Load saved execution order or calculate from dependencies
       const savedOrder = globalRes.data.data?.executionOrder || {};
@@ -343,7 +346,13 @@ const SyncTab = () => {
 
   const handleSaveExecutionSettings = async () => {
     try {
-      await put(`/${PLUGIN_ID}/sync-execution/settings/${selectedProfile}`, executionSettings);
+      const payload = { ...executionSettings };
+      if (syncMode === 'single_side' && payload.executionMode === 'live') {
+        payload.executionMode = 'on_demand';
+        payload.enabled = false;
+      }
+
+      await put(`/${PLUGIN_ID}/sync-execution/settings/${selectedProfile}`, payload);
       setMessage({ type: 'success', text: 'Execution settings saved' });
       setSettingsModalOpen(false);
       loadData();
@@ -440,6 +449,14 @@ const SyncTab = () => {
                   </Button>
                 </Flex>
               </Flex>
+
+              {syncMode === 'single_side' && (
+                <Box paddingTop={4}>
+                  <Alert variant="info" title="Single-side mode restrictions">
+                    Live execution is disabled in single-side mode. Use on-demand or scheduled execution with pull-only profiles.
+                  </Alert>
+                </Box>
+              )}
 
               {message && (
                 <Box paddingTop={4}>
@@ -849,7 +866,11 @@ const SyncTab = () => {
                     onChange={(value) => setExecutionSettings((p) => ({ ...p, executionMode: value }))}
                   >
                     {EXECUTION_MODE_OPTIONS.map((opt) => (
-                      <SingleSelectOption key={opt.value} value={opt.value}>
+                      <SingleSelectOption
+                        key={opt.value}
+                        value={opt.value}
+                        disabled={syncMode === 'single_side' && opt.value === 'live'}
+                      >
                         {opt.label}
                       </SingleSelectOption>
                     ))}
@@ -858,6 +879,7 @@ const SyncTab = () => {
                     {executionSettings.executionMode === 'on_demand' && 'Sync only when manually triggered'}
                     {executionSettings.executionMode === 'scheduled' && 'Sync automatically at regular intervals'}
                     {executionSettings.executionMode === 'live' && 'Sync immediately when changes occur'}
+                    {syncMode === 'single_side' && executionSettings.executionMode === 'live' && ' (not supported in single-side mode)'}
                   </Field.Hint>
                 </Field.Root>
               </Box>

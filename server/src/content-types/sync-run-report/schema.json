@@ -1,0 +1,26 @@
+{
+  "kind": "collectionType",
+  "collectionName": "sync_run_reports",
+  "info": {
+    "singularName": "sync-run-report",
+    "pluralName": "sync-run-reports",
+    "displayName": "Sync Run Report"
+  },
+  "options": {},
+  "pluginOptions": {
+    "content-manager": { "visible": false },
+    "content-type-builder": { "visible": false }
+  },
+  "attributes": {
+    "runType": { "type": "string" },
+    "trigger": { "type": "string" },
+    "status": { "type": "string" },
+    "startedAt": { "type": "datetime" },
+    "completedAt": { "type": "datetime" },
+    "contentTypes": { "type": "json" },
+    "beforeStats": { "type": "json" },
+    "afterStats": { "type": "json" },
+    "summary": { "type": "json" },
+    "error": { "type": "text" }
+  }
+}

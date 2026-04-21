@@ -3,6 +3,7 @@
 const STORE_KEY = 'remote-server-config';
 
 const SENSITIVE_FIELDS = ['apiToken', 'sharedSecret'];
+const VALID_SYNC_MODES = ['paired', 'single_side'];
 
 module.exports = ({ strapi }) => {
   function getStore() {
@@ -21,11 +22,16 @@ module.exports = ({ strapi }) => {
         return null;
       }
 
+      const normalized = {
+        syncMode: 'paired',
+        ...data,
+      };
+
       if (!safe) {
-        return data;
+        return normalized;
       }
 
-      const sanitized = { ...data };
+      const sanitized = { ...normalized };
       for (const field of SENSITIVE_FIELDS) {
         if (sanitized[field]) {
           sanitized[field] = '••••••••';
@@ -58,6 +64,16 @@ module.exports = ({ strapi }) => {
       }
       if (config.sharedSecret !== undefined) {
         merged.sharedSecret = config.sharedSecret;
+      }
+      if (config.syncMode !== undefined) {
+        if (!VALID_SYNC_MODES.includes(config.syncMode)) {
+          throw new Error(`syncMode must be one of: ${VALID_SYNC_MODES.join(', ')}`);
+        }
+        merged.syncMode = config.syncMode;
+      }
+
+      if (!merged.syncMode) {
+        merged.syncMode = 'paired';
       }
 
       await store.set({ key: STORE_KEY, value: merged });

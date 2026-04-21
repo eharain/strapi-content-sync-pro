@@ -1,0 +1,60 @@
+
+Remote server :
+D:\>cd d:\Rutba\ERP
+D:\Rutba\ERP>npm run dev:strapi
+
+ Database           = mysql                                            
+ Database name      = pos_db                                           
+ URL= http://localhost:4010
+ Upload dir  =D:\Rutba\data\rutba-pos-files\uploads
+
+
+
+
+Local Server:
+D:\Rutba\ERP>cd pos-strapi
+D:\Rutba\ERP\pos-strapi>npm run dev
+http://localhost:40101
+
+Database         =   mysql                                            │
+Database name    =   rutba_pos 
+Upload Dir = D:\Rutba\data\rutba-pos-files\tmp\uploads
+
+these two servers have same code base of strapi but are running using different .env settings 
+
+you can truncate or partially delete any of their database tables or enteries as well as files. 
+
+
+
+Please note that when the files are copied over the instance try to reboot but any of these can fail to start so you will have to restart.  the restart takes about a minutes each time.
+
+
+Both the servers admin user : eharain@yahoo.com and password : At56ZNTxXf6JSTq
+
+kindly test different settings and different variations and ensure that the plugin works as desired.
+
+the current servers are running in command prompt and you can stop them by pressing ctrl+c and start them again using the above commands. you can run these servers in you own power shels if you want.
+the servers will not restrt unloss you copy the code changes in destination drrectory of the plugin that is :D:\Rutba\ERP\pos-strapi\src\plugins\strapi-content-sync-pro
+
+to understand the entites read the contents of any server or in src directory of the strapi.
+
+to test  single-side mode disable the plugin loading by a special enviromment variable so that specific spin of strapi will not load the plugin and then you can test the sync in one direction.
+
+Tests: 
+kindly create different sync profiles with least and max dependiceis and depth and try executing them.
+
+kindly few media files and then sync also upload connect to entites and then sync and check if the media files are also synced properly with the entities.
+
+Please also test the sync with different data in the tables and check if the sync is working as expected.
+
+insert test data specially cms entites and then sync and check if the data is synced properly in the destination server.
+
+create products and test the sync with different variations of products and check if the products are synced properly in the destination server.
+
+create orders and test the sync with different variations of orders and check if the orders are synced properly in the destination server.
+
+the orders will be created on remote server and should be synced to local server and then you can check the orders in local server and also check the order details and the products in the order and the media files connected to the products in the order.
+
+the cms contenst and offers are created on local servers and set to remote server and then you can check the cms content and offers in remote server and also check the media files connected to the cms content and offers.
+
+complete remove media enteries and few files on local server and then sync downward and check if these are created again. simmilar create new media each side and sync across. 

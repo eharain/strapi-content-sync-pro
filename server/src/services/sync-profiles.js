@@ -38,6 +38,29 @@ module.exports = ({ strapi }) => {
   const VALID_DIRECTIONS = ['push', 'pull', 'both', 'none'];
   const VALID_CONFLICT_STRATEGIES = ['latest', 'local_wins', 'remote_wins'];
 
+  async function getSyncMode() {
+    const configService = strapi.plugin('strapi-content-sync-pro').service('config');
+    const config = await configService.getConfig({ safe: false });
+    return config?.syncMode || 'paired';
+  }
+
+  function normalizeProfileForMode(profile, syncMode) {
+    if (syncMode !== 'single_side') return profile;
+
+    const next = { ...profile };
+    next.direction = 'pull';
+
+    if (!next.isSimple && Array.isArray(next.fieldPolicies)) {
+      next.fieldPolicies = next.fieldPolicies.map((fp) => {
+        if (fp.direction === 'push') return { ...fp, direction: 'pull' };
+        if (fp.direction === 'both') return { ...fp, direction: 'pull' };
+        return fp;
+      });
+    }
+
+    return next;
+  }
+
   return {
     /**
      * Get all sync profiles
@@ -45,7 +68,32 @@ module.exports = ({ strapi }) => {
     async getProfiles() {
       const store = getStore();
       const data = await store.get({ key: STORE_KEY });
-      return data || [];
+      const profiles = data || [];
+      const syncMode = await getSyncMode();
+      if (syncMode !== 'single_side') return profiles;
+
+      let changed = false;
+      const normalized = profiles.map((p) => {
+        if (p.direction === 'pull') return p;
+        changed = true;
+        return {
+          ...p,
+          direction: 'pull',
+          fieldPolicies: Array.isArray(p.fieldPolicies)
+            ? p.fieldPolicies.map((fp) => ({
+                ...fp,
+                direction: fp.direction === 'none' ? 'none' : 'pull',
+              }))
+            : p.fieldPolicies,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+
+      if (changed) {
+        await store.set({ key: STORE_KEY, value: normalized });
+      }
+
+      return normalized;
     },
 
     /**
@@ -53,7 +101,10 @@ module.exports = ({ strapi }) => {
      */
     async getProfile(id) {
       const profiles = await this.getProfiles();
-      return profiles.find((p) => p.id === id) || null;
+      const profile = profiles.find((p) => p.id === id) || null;
+      if (!profile) return null;
+      const syncMode = await getSyncMode();
+      return normalizeProfileForMode(profile, syncMode);
     },
 
     /**
@@ -61,7 +112,11 @@ module.exports = ({ strapi }) => {
      */
     async getActiveProfileForContentType(contentTypeUid) {
       const profiles = await this.getProfiles();
-      return profiles.find((p) => p.contentType === contentTypeUid && p.isActive) || null;
+      const active = profiles.find((p) => p.contentType === contentTypeUid && p.isActive) || null;
+      if (!active) return null;
+
+      const syncMode = await getSyncMode();
+      return normalizeProfileForMode(active, syncMode);
     },
 
     /**
@@ -69,7 +124,10 @@ module.exports = ({ strapi }) => {
      */
     async getProfilesForContentType(contentTypeUid) {
       const profiles = await this.getProfiles();
-      return profiles.filter((p) => p.contentType === contentTypeUid);
+      const syncMode = await getSyncMode();
+      return profiles
+        .filter((p) => p.contentType === contentTypeUid)
+        .map((p) => normalizeProfileForMode(p, syncMode));
     },
 
     /**
@@ -176,6 +234,17 @@ module.exports = ({ strapi }) => {
         updatedAt: new Date().toISOString(),
       };
 
+      const syncMode = await getSyncMode();
+      if (syncMode === 'single_side') {
+        newProfile.direction = 'pull';
+        if (!newProfile.isSimple && Array.isArray(newProfile.fieldPolicies)) {
+          newProfile.fieldPolicies = newProfile.fieldPolicies.map((fp) => ({
+            ...fp,
+            direction: fp.direction === 'none' ? 'none' : 'pull',
+          }));
+        }
+      }
+
       // If this profile is set as active, deactivate others for same content type
       if (newProfile.isActive) {
         profiles.forEach((p) => {
@@ -243,10 +312,22 @@ module.exports = ({ strapi }) => {
         updatedAt: new Date().toISOString(),
       };
 
+      const syncMode = await getSyncMode();
+      if (syncMode === 'single_side') {
+        updatedProfile.direction = 'pull';
+      }
+
       if (updates.fieldPolicies) {
         updatedProfile.fieldPolicies = updates.fieldPolicies.map((fp) => ({
           field: fp.field,
           direction: fp.direction || 'both',
+        }));
+      }
+
+      if (syncMode === 'single_side' && !updatedProfile.isSimple && Array.isArray(updatedProfile.fieldPolicies)) {
+        updatedProfile.fieldPolicies = updatedProfile.fieldPolicies.map((fp) => ({
+          ...fp,
+          direction: fp.direction === 'none' ? 'none' : 'pull',
         }));
       }
 

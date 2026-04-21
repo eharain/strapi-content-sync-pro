@@ -50,6 +50,7 @@ export const HelpTab = () => {
           <Tabs.Trigger value="sync-profiles">Sync Profiles</Tabs.Trigger>
           <Tabs.Trigger value="execution">Sync Execution</Tabs.Trigger>
           <Tabs.Trigger value="media">Media</Tabs.Trigger>
+          <Tabs.Trigger value="stats">Stats</Tabs.Trigger>
           <Tabs.Trigger value="enforcement">Enforcement</Tabs.Trigger>
           <Tabs.Trigger value="alerts">Alerts</Tabs.Trigger>
           <Tabs.Trigger value="troubleshooting">Troubleshooting</Tabs.Trigger>
@@ -172,9 +173,12 @@ export const HelpTab = () => {
                 Configure the connection to the remote Strapi instance in the <strong>Connection</strong> sub-tab.
               </Typography>
               <Typography variant="omega" paddingBottom={2}>
-                <strong>Important:</strong> Content Sync Pro must be installed and enabled on <strong>both</strong> local and remote Strapi servers.
-                The connection test validates remote plugin reachability and token access, while actual sync behavior is controlled by Content Types,
-                Sync Profiles, and Sync Execution settings.
+                <strong>Deployment modes:</strong> Use <strong>Paired</strong> mode when the plugin is installed on both servers,
+                or <strong>Single-side</strong> mode when the plugin is installed only on local server.
+              </Typography>
+              <Typography variant="omega" paddingBottom={2}>
+                In paired mode, connection test validates remote plugin reachability and token access. In single-side mode,
+                test validates remote reachability and content API token access without requiring remote plugin endpoints.
               </Typography>
 
               <Box background="neutral100" padding={4} hasRadius marginBottom={4}>
@@ -300,6 +304,9 @@ http://localhost:1337</CodeBlock>
               <Typography variant="omega">
                 Sync Profiles define <strong>WHAT</strong> to sync and <strong>HOW</strong> conflicts are resolved.
                 They do NOT control when sync runs - that's configured in the Sync tab (Execution).
+              </Typography>
+              <Typography variant="omega" paddingTop={2}>
+                In <strong>Single-side</strong> mode, profiles are automatically restricted to <strong>Pull Only</strong>.
               </Typography>
               <Typography variant="omega" paddingTop={2}>
                 Each profile specifies:
@@ -531,7 +538,7 @@ http://localhost:1337</CodeBlock>
                   Uses lifecycle hooks to detect changes.
                 </Typography>
                 <Typography variant="pi" textColor="warning600" paddingTop={2}>
-                  Note: Increases server load. Use for critical content only.
+                  Note: Increases server load. Use for critical content only. Live mode is available in paired mode and disabled in single-side mode.
                 </Typography>
               </Box>
             </HelpSection>
@@ -721,6 +728,34 @@ http://localhost:1337</CodeBlock>
                 bytes (rsync passes <code>--dry-run</code>; URL strategy skips the actual
                 upload/download). Use <strong>Test connection</strong> to quickly verify the remote
                 token (URL) or the rsync binary (rsync) before a real run.
+              </Typography>
+            </HelpSection>
+          </Box>
+        </Tabs.Content>
+
+        {/* Stats Tab */}
+        <Tabs.Content value="stats">
+          <Box paddingTop={4}>
+            <HelpSection title="Database Stats Overview">
+              <Typography variant="omega">
+                The Stats tab compares local and remote data state per content type. It shows record counts,
+                newest timestamps, and which side currently has the newest data.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="Run Reports (Before vs After)">
+              <Typography variant="omega">
+                Before every sync run, the plugin captures a pre-run snapshot. After the run completes,
+                it captures a post-run snapshot and stores both in a report. This helps you review sync impact
+                and trends over time.
+              </Typography>
+            </HelpSection>
+
+            <HelpSection title="Retention & Cleanup Controls">
+              <Typography variant="omega">
+                To control storage growth, use manual clear actions for logs and reports, and configure
+                automatic retention limits (maximum log entries and report entries). Older data is pruned
+                when limits are exceeded.
               </Typography>
             </HelpSection>
           </Box>
