@@ -349,6 +349,11 @@ const ConfigTab = () => {
                     {/* Connection Tab */}
                     <Tabs.Content value="connection">
                         <Box>
+                            <Box paddingBottom={4}>
+                                <Alert variant="info" title="Install on both servers">
+                                    Content Sync Pro must be installed and enabled on both the local and remote Strapi instances. Connection test validates remote reachability and token access, but sync behavior is controlled separately in Content Types, Sync Profiles, and Sync Execution settings.
+                                </Alert>
+                            </Box>
                             <Flex gap={6}>
                                 {/* LEFT COLUMN: Remote Server */}
                                 <Box flex="1">
@@ -362,7 +367,7 @@ const ConfigTab = () => {
                                                 value={config.baseUrl}
                                                 onChange={(e) => setConfig((p) => ({ ...p, baseUrl: e.target.value }))}
                                             />
-                                            <Field.Hint>URL of the Strapi server to sync with</Field.Hint>
+                                            <Field.Hint>URL of the remote Strapi server where this plugin is also installed</Field.Hint>
                                         </Field.Root>
 
                                         <Field.Root>
@@ -378,7 +383,7 @@ const ConfigTab = () => {
                                                 </Box>
 
                                             </Flex>
-                                            <Field.Hint>Full Access token from the remote server</Field.Hint>
+                                            <Field.Hint>Remote API token with permissions for this plugin routes and synced content types</Field.Hint>
                                         </Field.Root>
                                         <Field.Root>
                                             <Button
@@ -404,7 +409,7 @@ const ConfigTab = () => {
                                                 value={config.instanceId}
                                                 onChange={(e) => setConfig((p) => ({ ...p, instanceId: e.target.value }))}
                                             />
-                                            <Field.Hint>Name to identify this server in logs</Field.Hint>
+                                            <Field.Hint>Unique local instance name used in logs and sync traceability</Field.Hint>
                                         </Field.Root>
 
                                         <Field.Root>
@@ -415,7 +420,7 @@ const ConfigTab = () => {
                                                 value={config.sharedSecret}
                                                 onChange={(e) => setConfig((p) => ({ ...p, sharedSecret: e.target.value }))}
                                             />
-                                            <Field.Hint>Must match on both servers</Field.Hint>
+                                            <Field.Hint>Must match exactly on both local and remote plugin configurations</Field.Hint>
                                         </Field.Root>
                                     </Flex>
                                 </Box>

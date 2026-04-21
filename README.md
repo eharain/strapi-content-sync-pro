@@ -110,14 +110,17 @@ npm run develop
 
 ## Quick Start
 
-### Step 1: Configure Connection
-In the **Configuration** tab, set the remote Base URL, API Token, Instance ID, and Shared Secret.
+### Step 1: Install and Configure Connection
+Install and enable **strapi-content-sync-pro** on both local and remote Strapi servers.
+Then in the local **Configuration** tab, set the remote Base URL, API Token, Instance ID, and Shared Secret.
 
 ### Step 2: Enable Content Types
 In the **Content Types** tab, toggle on the content types you want to sync. Default profiles are auto-generated.
 
-### Step 3: Tune Profiles and Execution
-In **Sync Profiles**, adjust direction/conflict strategy if needed, then in **Sync** configure execution mode and global page size.
+### Step 3: Align Sync Settings on Both Servers
+In **Content Types**, enable matching content types on both servers.
+In **Sync Profiles**, set compatible direction/conflict strategy.
+Then in **Sync**, configure execution mode and global page size.
 
 ### Step 4: Run Sync
 In the **Sync** tab, click **Sync All Active Profiles** or run individual profiles.

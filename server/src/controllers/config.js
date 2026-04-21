@@ -116,7 +116,7 @@ module.exports = {
         success: true,
         stage: 'complete',
         message: authWorks
-          ? 'Connection successful and API token validated'
+          ? 'Connection successful: remote plugin is reachable and API token is valid. Ensure matching sync settings (content types, active profiles, execution mode, and shared secret) on both servers before running sync.'
           : 'Reachable but API token could not be validated',
         latency: pingLatency,
         remoteInfo,

@@ -171,6 +171,11 @@ export const HelpTab = () => {
               <Typography variant="omega" paddingBottom={2}>
                 Configure the connection to the remote Strapi instance in the <strong>Connection</strong> sub-tab.
               </Typography>
+              <Typography variant="omega" paddingBottom={2}>
+                <strong>Important:</strong> Content Sync Pro must be installed and enabled on <strong>both</strong> local and remote Strapi servers.
+                The connection test validates remote plugin reachability and token access, while actual sync behavior is controlled by Content Types,
+                Sync Profiles, and Sync Execution settings.
+              </Typography>
 
               <Box background="neutral100" padding={4} hasRadius marginBottom={4}>
                 <Typography variant="sigma" textColor="neutral800">Base URL</Typography>
