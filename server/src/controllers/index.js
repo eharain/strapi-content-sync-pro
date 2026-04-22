@@ -13,6 +13,7 @@ const syncMedia = require('./sync-media');
 const alerts = require('./alerts');
 const dependencies = require('./dependencies');
 const syncStats = require('./sync-stats');
+const bulkTransfer = require('./bulk-transfer');
 
 module.exports = {
   ping,
@@ -28,4 +29,5 @@ module.exports = {
   alerts,
   dependencies,
   syncStats,
+  bulkTransfer,
 };
