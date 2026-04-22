@@ -10,12 +10,14 @@ import { StatsTab } from '../../components/StatsTab';
 import { HelpTab } from '../../components/HelpTab';
 import { SyncProfilesTab } from '../../components/SyncProfilesTab';
 import { MediaTab } from '../../components/MediaTab';
+import BulkTransferTab from '../../components/BulkTransferTab';
 
 const TABS = [
     { key: 'config', label: 'Configuration' },
     { key: 'content-types', label: 'Content Types' },
     { key: 'sync-profiles', label: 'Sync Profiles' },
     { key: 'sync', label: 'Sync' },
+    { key: 'bulk-transfer', label: 'Bulk Transfer' },
     { key: 'media', label: 'Media' },
     { key: 'stats', label: 'Stats' },
     { key: 'logs', label: 'Logs' },
@@ -51,6 +53,7 @@ const HomePage = () => {
                 {activeTab === 'content-types' && <ContentTypesTab />}
                 {activeTab === 'sync-profiles' && <SyncProfilesTab />}
                 {activeTab === 'sync' && <SyncTab />}
+                {activeTab === 'bulk-transfer' && <BulkTransferTab />}
                 {activeTab === 'media' && <MediaTab />}
                 {activeTab === 'stats' && <StatsTab />}
                 {activeTab === 'logs' && <LogsTab />}

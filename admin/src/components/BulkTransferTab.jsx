@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Flex,
@@ -54,6 +54,17 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
   const [job, setJob] = useState(null);
   const [message, setMessage] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Per-chunk selection. Key = chunk.index -> boolean (true = include in run).
+  // Populated from the preview plan; user can toggle individual rows or
+  // use the select-all checkbox in the table header.
+  const [selected, setSelected] = useState({});
+  const [history, setHistory] = useState([]);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  // History id whose chunk-level details are expanded in the Previous Runs tab.
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+  // Internal sub-tab: 'run' shows the configuration + active job,
+  // 'history' shows the persisted previous-runs table.
+  const [subTab, setSubTab] = useState('run');
 
   const pollRef = useRef(null);
 
@@ -75,7 +86,21 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
       }
       try {
         const { data } = await post(`/${PLUGIN_ID}/bulk-transfer/preview`, { direction, scopes });
-        if (!cancelled) setPreview(data?.data || null);
+        if (!cancelled) {
+          const p = data?.data || null;
+          setPreview(p);
+          // Default-select every chunk for a fresh preview; preserve existing
+          // user toggles for chunks that still exist by index.
+          if (p?.chunks) {
+            setSelected((prev) => {
+              const next = {};
+              for (const c of p.chunks) {
+                next[c.index] = prev[c.index] !== undefined ? prev[c.index] : true;
+              }
+              return next;
+            });
+          }
+        }
       } catch (err) {
         if (!cancelled) setPreview(null);
       }
@@ -83,6 +108,27 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
     loadPreview();
     return () => { cancelled = true; };
   }, [direction, scopes, scopeCount, post]);
+
+  // Load persisted run history on mount and whenever a job reaches a terminal
+  // state, so the "Previous Runs" panel stays current.
+  const loadHistory = async () => {
+    try {
+      const { data } = await get(`/${PLUGIN_ID}/bulk-transfer/history`);
+      setHistory(data?.data?.items || []);
+    } catch {
+      /* ignore */
+    }
+  };
+  useEffect(() => {
+    loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (job && ['success', 'partial', 'cancelled', 'error', 'paused'].includes(job.status)) {
+      loadHistory();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.status]);
 
   useEffect(() => {
     // Poll job status while it is running or paused so the UI keeps showing
@@ -106,23 +152,119 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
     setScopes((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const handleToggleChunk = (index) => {
+    setSelected((prev) => ({ ...prev, [index]: !prev[index] }));
+  };
+
+  const previewChunks = preview?.chunks || [];
+  const allSelected = previewChunks.length > 0 && previewChunks.every((c) => selected[c.index]);
+  const noneSelected = previewChunks.every((c) => !selected[c.index]);
+
+  const handleToggleAll = () => {
+    const target = !allSelected;
+    setSelected(() => {
+      const next = {};
+      for (const c of previewChunks) next[c.index] = target;
+      return next;
+    });
+  };
+
+  const getSelectedIndexes = () =>
+    previewChunks.filter((c) => selected[c.index]).map((c) => c.index);
+
   const handleStart = async () => {
     setMessage(null);
     setBusy(true);
     try {
+      const selectedIndexes = getSelectedIndexes();
+      if (previewChunks.length > 0 && selectedIndexes.length === 0) {
+        throw new Error('Select at least one chunk to run.');
+      }
       const { data } = await post(`/${PLUGIN_ID}/bulk-transfer/start`, {
         direction,
         scopes,
         syncDeletions,
         autoContinue,
         conflictStrategy,
+        selectedIndexes,
       });
       setJob(data?.data || null);
-      setMessage({ type: 'success', text: 'Bulk transfer started.' });
+      setMessage({ type: 'success', text: `Bulk transfer started (${selectedIndexes.length} chunk(s)).` });
     } catch (err) {
       setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to start bulk transfer' });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleRestartFromHistory = async (historyId, overrides = {}) => {
+    setHistoryBusy(true);
+    setMessage(null);
+    try {
+      const { data } = await post(
+        `/${PLUGIN_ID}/bulk-transfer/history/${historyId}/restart`,
+        overrides
+      );
+      setJob(data?.data || null);
+      setSubTab('run');
+      setMessage({ type: 'success', text: 'Restarted bulk transfer from history.' });
+      await loadHistory();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to restart from history' });
+    } finally {
+      setHistoryBusy(false);
+    }
+  };
+
+  const handleResumeFromHistory = async (historyId) => {
+    setHistoryBusy(true);
+    setMessage(null);
+    try {
+      const { data } = await post(
+        `/${PLUGIN_ID}/bulk-transfer/history/${historyId}/resume`,
+        {}
+      );
+      setJob(data?.data || null);
+      setSubTab('run');
+      setMessage({ type: 'success', text: 'Resumed bulk transfer from where it left off.' });
+      await loadHistory();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to resume from history' });
+    } finally {
+      setHistoryBusy(false);
+    }
+  };
+
+  const handleLoadFromHistory = (entry) => {
+    // Rehydrate the form with the historical selection so the user can tweak
+    // and then press Start as usual. Does not create a job.
+    setDirection(entry.direction);
+    setScopes({
+      content: !!entry.scopes?.content,
+      media: !!entry.scopes?.media,
+      users: !!entry.scopes?.users,
+      admins: !!entry.scopes?.admins,
+    });
+    setSyncDeletions(!!entry.syncDeletions);
+    setAutoContinue(!!entry.autoContinue);
+    setConflictStrategy(entry.conflictStrategy || 'latest');
+    const sel = {};
+    for (const c of entry.chunks || []) sel[c.index] = c.selected !== false;
+    setSelected(sel);
+    setJob(null);
+    setSubTab('run');
+    setMessage({ type: 'info', text: `Loaded selection from run ${entry.id}. Adjust and press Start.` });
+  };
+
+  const handleClearHistory = async () => {
+    setHistoryBusy(true);
+    try {
+      await post(`/${PLUGIN_ID}/bulk-transfer/history/clear`);
+      await loadHistory();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to clear history' });
+    } finally {
+      setHistoryBusy(false);
     }
   };
 
@@ -219,6 +361,25 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
         One-click full pull or full push across selected scopes. The transfer runs chunk-by-chunk
         (one content type / media profile per chunk) and can auto-advance or pause between chunks.
       </Typography>
+
+      <Box paddingTop={3} paddingBottom={1}>
+        <Flex gap={2}>
+          <Button
+            variant={subTab === 'run' ? 'default' : 'tertiary'}
+            onClick={() => setSubTab('run')}
+          >
+            Run Transfer
+          </Button>
+          <Button
+            variant={subTab === 'history' ? 'default' : 'tertiary'}
+            onClick={() => setSubTab('history')}
+          >
+            Previous Runs{history.length ? ` (${history.length})` : ''}
+          </Button>
+        </Flex>
+      </Box>
+
+      {subTab === 'run' && (<>
 
       {syncMode === 'single_side' && (
         <Box paddingTop={4}>
@@ -346,7 +507,7 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
           <Button
             onClick={handleStart}
             loading={busy && !job}
-            disabled={busy || scopeCount === 0 || isActive}
+            disabled={busy || scopeCount === 0 || isActive || (previewChunks.length > 0 && noneSelected)}
           >
             {direction === 'pull' ? 'Start Full Pull' : 'Start Full Push'}
           </Button>
@@ -410,6 +571,9 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
           {preview && !job && (
             <Typography variant="pi" textColor="neutral500" style={{ alignSelf: 'center' }}>
               Plan: {preview.total} chunk{preview.total === 1 ? '' : 's'}
+              {previewChunks.length > 0
+                ? ` · selected ${getSelectedIndexes().length}/${previewChunks.length}`
+                : ''}
             </Typography>
           )}
         </Flex>
@@ -424,6 +588,16 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
             <Table>
               <Thead>
                 <Tr>
+                  <Th style={{ width: 48 }}>
+                    {!job && previewChunks.length > 0 ? (
+                      <Checkbox
+                        checked={allSelected ? true : noneSelected ? false : 'indeterminate'}
+                        onCheckedChange={handleToggleAll}
+                      />
+                    ) : (
+                      <Typography variant="sigma">Run</Typography>
+                    )}
+                  </Th>
                   <Th style={{ width: 60 }}><Typography variant="sigma">#</Typography></Th>
                   <Th><Typography variant="sigma">Kind</Typography></Th>
                   <Th><Typography variant="sigma">Target</Typography></Th>
@@ -443,8 +617,21 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
                   const pushPullLabel = (c.pushed || c.pulled || c.errors)
                     ? `${c.pushed || 0} / ${c.pulled || 0}${c.errors ? ` (err ${c.errors})` : ''}`
                     : '—';
+                  const isSelectedRow = job
+                    ? c.selected !== false
+                    : !!selected[c.index];
                   return (
                     <Tr key={c.index}>
+                      <Td>
+                        {!job ? (
+                          <Checkbox
+                            checked={isSelectedRow}
+                            onCheckedChange={() => handleToggleChunk(c.index)}
+                          />
+                        ) : (
+                          <Badge>{isSelectedRow ? 'yes' : 'no'}</Badge>
+                        )}
+                      </Td>
                       <Td><Typography>{c.index + 1}</Typography></Td>
                       <Td><Badge>{c.kind}</Badge></Td>
                       <Td><Typography>{c.label}</Typography></Td>
@@ -482,6 +669,188 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
             {job.errors?.length ? `, ${job.errors.length} error(s)` : ''}.
           </Alert>
         </Box>
+      )}
+
+      </>)}
+
+      {subTab === 'history' && (
+      <Box paddingTop={4}>
+        <Flex gap={2} alignItems="center" justifyContent="space-between">
+          <Typography variant="delta">Previous Runs</Typography>
+          {history.length > 0 && (
+            <Button variant="tertiary" onClick={handleClearHistory} disabled={historyBusy}>
+              Clear History
+            </Button>
+          )}
+        </Flex>
+        <Typography variant="pi" textColor="neutral600">
+          Paused, cancelled, and completed runs are preserved here. Restart a run from scratch
+          using the same chunk selection, or load its selection into the Run Transfer tab to tweak.
+        </Typography>
+        <Box paddingTop={2}>
+          {history.length === 0 ? (
+            <Typography variant="pi" textColor="neutral500">No previous runs yet.</Typography>
+          ) : (
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th><Typography variant="sigma">When</Typography></Th>
+                  <Th><Typography variant="sigma">Direction</Typography></Th>
+                  <Th><Typography variant="sigma">Status</Typography></Th>
+                  <Th><Typography variant="sigma">Chunks</Typography></Th>
+                  <Th><Typography variant="sigma">Actions</Typography></Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {history.map((h) => {
+                  const selCount = (h.chunks || []).filter((c) => c.selected !== false).length;
+                  const doneCount = (h.chunks || []).filter(
+                    (c) => c.status === 'success' || c.status === 'partial'
+                  ).length;
+                  const remaining = Math.max(selCount - doneCount, 0);
+                  const when = h.startedAt || h.createdAt;
+                  const isResumable = ['paused', 'cancelled', 'error'].includes(h.status) && remaining > 0;
+                  const isExpanded = expandedHistoryId === h.id;
+                  const aggPushed = (h.chunks || []).reduce((s, c) => s + (c.pushed || 0), 0);
+                  const aggPulled = (h.chunks || []).reduce((s, c) => s + (c.pulled || 0), 0);
+                  const aggErrors = (h.chunks || []).reduce((s, c) => s + (c.errors || 0), 0);
+                  return (
+                    <React.Fragment key={h.id}>
+                    <Tr>
+                      <Td>
+                        <Typography variant="pi">
+                          {when ? new Date(when).toLocaleString() : '—'}
+                        </Typography>
+                      </Td>
+                      <Td><Badge>{h.direction}</Badge></Td>
+                      <Td>
+                        <Badge
+                          backgroundColor={
+                            h.status === 'success' ? 'success100'
+                            : h.status === 'partial' ? 'warning100'
+                            : h.status === 'paused' ? 'warning100'
+                            : h.status === 'cancelled' || h.status === 'error' ? 'danger100'
+                            : 'neutral100'
+                          }
+                        >
+                          {h.status}
+                        </Badge>
+                      </Td>
+                      <Td>
+                        <Typography variant="pi">
+                          {doneCount}/{selCount} done · {h.total} total
+                        </Typography>
+                      </Td>
+                      <Td>
+                        <Flex gap={2} wrap="wrap">
+                          <Button
+                            size="S"
+                            variant="tertiary"
+                            onClick={() => setExpandedHistoryId(isExpanded ? null : h.id)}
+                          >
+                            {isExpanded ? 'Hide Details' : 'View Details'}
+                          </Button>
+                          <Button
+                            size="S"
+                            variant="secondary"
+                            onClick={() => handleLoadFromHistory(h)}
+                            disabled={historyBusy || isActive}
+                          >
+                            Load Selection
+                          </Button>
+                          {isResumable && (
+                            <Button
+                              size="S"
+                              onClick={() => handleResumeFromHistory(h.id)}
+                              disabled={historyBusy || isActive}
+                            >
+                              Resume
+                            </Button>
+                          )}
+                          <Button
+                            size="S"
+                            variant={isResumable ? 'secondary' : 'default'}
+                            onClick={() => handleRestartFromHistory(h.id)}
+                            disabled={historyBusy || isActive}
+                          >
+                            {isResumable ? 'Restart from Scratch' : 'Start Again'}
+                          </Button>
+                        </Flex>
+                      </Td>
+                    </Tr>
+                    {isExpanded && (
+                      <Tr>
+                        <Td colSpan={5}>
+                          <Box background="neutral100" padding={3}>
+                            <Flex gap={4} wrap="wrap" paddingBottom={2}>
+                              <Typography variant="pi">
+                                <strong>Totals:</strong> pushed {aggPushed} · pulled {aggPulled} · errors {aggErrors}
+                              </Typography>
+                              <Typography variant="pi">
+                                <strong>Conflict:</strong> {h.conflictStrategy || 'latest'}
+                              </Typography>
+                              <Typography variant="pi">
+                                <strong>Deletions:</strong> {h.syncDeletions ? 'yes' : 'no'}
+                              </Typography>
+                              {h.completedAt && (
+                                <Typography variant="pi">
+                                  <strong>Ended:</strong> {new Date(h.completedAt).toLocaleString()}
+                                </Typography>
+                              )}
+                            </Flex>
+                            <Table>
+                              <Thead>
+                                <Tr>
+                                  <Th style={{ width: 60 }}><Typography variant="sigma">#</Typography></Th>
+                                  <Th><Typography variant="sigma">Kind</Typography></Th>
+                                  <Th><Typography variant="sigma">Target</Typography></Th>
+                                  <Th><Typography variant="sigma">Status</Typography></Th>
+                                  <Th><Typography variant="sigma">Page</Typography></Th>
+                                  <Th><Typography variant="sigma">Pushed / Pulled</Typography></Th>
+                                  <Th><Typography variant="sigma">Notes</Typography></Th>
+                                </Tr>
+                              </Thead>
+                              <Tbody>
+                                {(h.chunks || []).map((c) => {
+                                  const pageLabel = c.pagesTotal
+                                    ? `${c.page || 0}/${c.pagesTotal}`
+                                    : c.page
+                                      ? `${c.page}`
+                                      : '—';
+                                  const pushPullLabel = (c.pushed || c.pulled || c.errors)
+                                    ? `${c.pushed || 0} / ${c.pulled || 0}${c.errors ? ` (err ${c.errors})` : ''}`
+                                    : '—';
+                                  return (
+                                    <Tr key={c.index}>
+                                      <Td><Typography variant="pi">{c.index + 1}</Typography></Td>
+                                      <Td><Badge>{c.kind}</Badge></Td>
+                                      <Td><Typography variant="pi">{c.label}</Typography></Td>
+                                      <Td>
+                                        <Badge>{c.selected === false ? 'not selected' : c.status}</Badge>
+                                      </Td>
+                                      <Td><Typography variant="pi">{pageLabel}</Typography></Td>
+                                      <Td><Typography variant="pi">{pushPullLabel}</Typography></Td>
+                                      <Td>
+                                        {c.error && <Typography textColor="danger600" variant="pi">{c.error}</Typography>}
+                                        {!c.error && c.warning && <Typography textColor="warning600" variant="pi">{c.warning}</Typography>}
+                                      </Td>
+                                    </Tr>
+                                  );
+                                })}
+                              </Tbody>
+                            </Table>
+                          </Box>
+                        </Td>
+                      </Tr>
+                    )}
+                    </React.Fragment>
+                  );
+                })}
+              </Tbody>
+            </Table>
+          )}
+        </Box>
+      </Box>
       )}
     </Box>
   );

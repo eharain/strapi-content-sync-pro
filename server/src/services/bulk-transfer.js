@@ -20,6 +20,8 @@
  */
 
 const PLUGIN_ID = 'strapi-content-sync-pro';
+const HISTORY_STORE_KEY = 'bulk-transfer-history';
+const HISTORY_MAX = 25;
 
 // Module-level in-memory job registry. Single active job at a time is enough
 // for this workflow; additional jobs may be queued/tracked by id if needed.
@@ -38,6 +40,69 @@ function now() {
 module.exports = ({ strapi }) => {
   function plugin() {
     return strapi.plugin(PLUGIN_ID);
+  }
+
+  function getStore() {
+    return strapi.store({ type: 'plugin', name: PLUGIN_ID });
+  }
+
+  async function readHistory() {
+    try {
+      return (await getStore().get({ key: HISTORY_STORE_KEY })) || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async function writeHistory(entries) {
+    try {
+      await getStore().set({ key: HISTORY_STORE_KEY, value: entries.slice(0, HISTORY_MAX) });
+    } catch (err) {
+      strapi.log?.warn?.(`[bulk-transfer] unable to persist history: ${err.message}`);
+    }
+  }
+
+  function snapshotForHistory(job) {
+    return {
+      id: job.id,
+      status: job.status,
+      direction: job.direction,
+      scopes: job.scopes,
+      syncDeletions: job.syncDeletions,
+      autoContinue: job.autoContinue,
+      conflictStrategy: job.conflictStrategy,
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
+      completedAt: job.completedAt,
+      cursor: job.cursor,
+      total: job.chunks.length,
+      errors: job.errors,
+      chunks: job.chunks.map((c) => ({
+        index: c.index,
+        kind: c.kind,
+        uid: c.uid || null,
+        profileId: c.profileId || null,
+        label: c.label,
+        status: c.status,
+        selected: c.selected !== false,
+        page: c.page || 0,
+        pagesTotal: c.pagesTotal || null,
+        pushed: c.pushed || 0,
+        pulled: c.pulled || 0,
+        errors: c.errors || 0,
+        error: c.error || null,
+        warning: c.warning || null,
+      })),
+    };
+  }
+
+  async function persistJobToHistory(job) {
+    const history = await readHistory();
+    const snap = snapshotForHistory(job);
+    const existingIdx = history.findIndex((h) => h.id === job.id);
+    if (existingIdx >= 0) history[existingIdx] = snap;
+    else history.unshift(snap);
+    await writeHistory(history);
   }
 
   function listSyncableContentTypeUids() {
@@ -108,6 +173,7 @@ module.exports = ({ strapi }) => {
     chunks.forEach((c, i) => {
       c.index = i;
       c.status = 'pending';
+      c.selected = true;
     });
 
     return chunks;
@@ -270,6 +336,26 @@ module.exports = ({ strapi }) => {
         throw new Error('No chunks produced for the selected scopes.');
       }
 
+      // Apply user-selected subset if provided. `selectedIndexes` is a list
+      // of chunk indexes the user explicitly wants to run. Anything outside
+      // the set is marked skipped so the cursor can walk over them cheaply
+      // while the UI still shows the full plan.
+      const selectedIndexes = Array.isArray(options.selectedIndexes)
+        ? new Set(options.selectedIndexes.map((n) => Number(n)))
+        : null;
+      if (selectedIndexes && selectedIndexes.size > 0) {
+        let anySelected = false;
+        for (const c of chunks) {
+          const sel = selectedIndexes.has(c.index);
+          c.selected = sel;
+          if (!sel) c.status = 'skipped';
+          else anySelected = true;
+        }
+        if (!anySelected) {
+          throw new Error('No chunks selected to run.');
+        }
+      }
+
       // Create a run report that the Stats tab will surface.
       const syncStats = plugin().service('syncStats');
       let reportHandle = null;
@@ -299,6 +385,7 @@ module.exports = ({ strapi }) => {
         reportId: reportHandle?.reportId || null,
       };
       jobs.set(job.id, job);
+      await persistJobToHistory(job);
 
       // Auto-run in background; each chunk runs sequentially.
       if (job.autoContinue) {
@@ -318,6 +405,11 @@ module.exports = ({ strapi }) => {
       const job = jobs.get(jobId);
       if (!job) throw new Error('Job not found');
       if (job.status !== 'running') throw new Error(`Job is ${job.status}`);
+      // Skip over any deselected chunks without running them.
+      while (job.cursor < job.chunks.length && job.chunks[job.cursor].selected === false) {
+        job.chunks[job.cursor].status = 'skipped';
+        job.cursor += 1;
+      }
       if (job.cursor >= job.chunks.length) {
         await this.finish(job);
         return this.summarize(job);
@@ -328,6 +420,7 @@ module.exports = ({ strapi }) => {
         job.cursor += 1;
       }
       if (job.cursor >= job.chunks.length) await this.finish(job);
+      await persistJobToHistory(job);
       return this.summarize(job);
     },
 
@@ -339,12 +432,20 @@ module.exports = ({ strapi }) => {
       if (!job) throw new Error('Job not found');
       while (job.status === 'running' && job.cursor < job.chunks.length) {
         const chunk = job.chunks[job.cursor];
+        if (chunk.selected === false) {
+          chunk.status = 'skipped';
+          job.cursor += 1;
+          continue;
+        }
         // eslint-disable-next-line no-await-in-loop
         const r = await executeChunk(job, chunk);
+        // eslint-disable-next-line no-await-in-loop
+        await persistJobToHistory(job);
         if (r.paused) break;
         job.cursor += 1;
       }
       if (job.status === 'running' && job.cursor >= job.chunks.length) await this.finish(job);
+      await persistJobToHistory(job);
       return this.summarize(job);
     },
 
@@ -369,6 +470,7 @@ module.exports = ({ strapi }) => {
           error: job.errors.length > 0 ? `${job.errors.length} chunk(s) failed` : null,
         });
       }
+      await persistJobToHistory(job);
     },
 
     async cancel(jobId) {
@@ -385,6 +487,7 @@ module.exports = ({ strapi }) => {
             error: 'cancelled by user',
           });
         }
+        await persistJobToHistory(job);
       }
       return this.summarize(job);
     },
@@ -400,6 +503,7 @@ module.exports = ({ strapi }) => {
       if (job.status === 'running') {
         job.status = 'paused';
         job.pausedAt = now();
+        await persistJobToHistory(job);
       }
       return this.summarize(job);
     },
@@ -414,6 +518,7 @@ module.exports = ({ strapi }) => {
       if (job.status !== 'paused') throw new Error(`Job is ${job.status}`);
       job.status = 'running';
       job.resumedAt = now();
+      await persistJobToHistory(job);
       if (job.autoContinue) {
         this.runToCompletion(job.id).catch((err) => {
           strapi.log?.error?.(`[bulk-transfer] resume auto-run failed: ${err.message}`);
@@ -449,8 +554,11 @@ module.exports = ({ strapi }) => {
         chunks: job.chunks.map((c) => ({
           index: c.index,
           kind: c.kind,
+          uid: c.uid || null,
+          profileId: c.profileId || null,
           label: c.label,
           status: c.status,
+          selected: c.selected !== false,
           error: c.error || null,
           warning: c.warning || null,
           startedAt: c.startedAt || null,
@@ -480,6 +588,161 @@ module.exports = ({ strapi }) => {
         },
       });
       return { total: chunks.length, chunks };
+    },
+
+    /**
+     * Return the persisted bulk-transfer run history. Used by the admin UI
+     * to let the user review previous runs and restart a new one using the
+     * same (or adjusted) chunk selection.
+     */
+    async getHistory() {
+      const history = await readHistory();
+      return { total: history.length, items: history };
+    },
+
+    async clearHistory() {
+      await writeHistory([]);
+      return { total: 0, items: [] };
+    },
+
+    /**
+     * Create a new job from a persisted history entry. By default the
+     * previously selected chunks are reused, but the caller can override
+     * `selectedIndexes`, `direction`, `scopes`, etc.
+     *
+     * Restart always starts from scratch (cursor = 0, fresh counters); the
+     * prior job remains in history as a separate record.
+     */
+    async restart(historyId, overrides = {}) {
+      const history = await readHistory();
+      const source = history.find((h) => h.id === historyId);
+      if (!source) throw new Error('History entry not found');
+
+      const previouslySelected = (source.chunks || [])
+        .filter((c) => c.selected !== false)
+        .map((c) => c.index);
+
+      return this.start({
+        direction: overrides.direction || source.direction,
+        scopes: overrides.scopes || source.scopes,
+        syncDeletions: overrides.syncDeletions ?? source.syncDeletions,
+        autoContinue: overrides.autoContinue ?? source.autoContinue,
+        conflictStrategy: overrides.conflictStrategy || source.conflictStrategy,
+        selectedIndexes: Array.isArray(overrides.selectedIndexes)
+          ? overrides.selectedIndexes
+          : previouslySelected,
+      });
+    },
+
+    /**
+     * Resume a run that was persisted to history (including across server
+     * restarts). Rehydrates the chunk plan, carrying forward completed /
+     * skipped chunks and the paused chunk's page progress so execution
+     * picks up exactly where it left off.
+     *
+     * Only valid when the source run ended in a non-terminal state
+     * (paused / cancelled). For success / partial runs, use restart().
+     */
+    async resumeFromHistory(historyId, overrides = {}) {
+      const history = await readHistory();
+      const source = history.find((h) => h.id === historyId);
+      if (!source) throw new Error('History entry not found');
+      if (['success', 'partial'].includes(source.status)) {
+        throw new Error(`Run already ${source.status}; use restart instead.`);
+      }
+
+      await assertRemoteConfigured();
+
+      // Rebuild the plan from the same scopes so chunk targets still exist.
+      const direction = source.direction === 'push' ? 'push' : 'pull';
+      const freshChunks = await buildPlan({ direction, scopes: source.scopes });
+
+      // Merge prior per-chunk state onto the fresh plan by (kind,label).
+      // Completed / skipped chunks stay that way; paused chunks keep their
+      // page / counters so runContentChunk resumes on the next page.
+      const byKey = new Map(
+        (source.chunks || []).map((c) => [`${c.kind}::${c.label}`, c])
+      );
+
+      let cursor = 0;
+      let cursorSet = false;
+      freshChunks.forEach((fresh, i) => {
+        const prior = byKey.get(`${fresh.kind}::${fresh.label}`);
+        if (!prior) return;
+        fresh.selected = prior.selected !== false;
+        // Carry forward running counters
+        fresh.page = prior.page || 0;
+        fresh.pagesTotal = prior.pagesTotal || null;
+        fresh.pushed = prior.pushed || 0;
+        fresh.pulled = prior.pulled || 0;
+        fresh.errors = prior.errors || 0;
+        fresh.startedAt = prior.startedAt || null;
+        // Decide chunk status for resume:
+        //  - success/skipped/error: keep terminal, don't re-run
+        //  - paused: reset to pending so executeChunk re-enters; progress kept
+        //  - running (server died mid-run): treat as paused to resume safely
+        //  - pending: stay pending
+        if (['success', 'skipped', 'error'].includes(prior.status)) {
+          fresh.status = prior.status;
+          fresh.completedAt = prior.completedAt || null;
+          fresh.error = prior.error || null;
+        } else {
+          fresh.status = 'pending';
+          if (!cursorSet) {
+            cursor = i;
+            cursorSet = true;
+          }
+        }
+      });
+
+      // If every chunk is already terminal, there's nothing to resume.
+      if (!cursorSet) {
+        throw new Error('Nothing to resume — all chunks already finished.');
+      }
+
+      // Apply selection override if provided.
+      if (Array.isArray(overrides.selectedIndexes)) {
+        const set = new Set(overrides.selectedIndexes.map((n) => Number(n)));
+        for (const c of freshChunks) c.selected = set.has(c.index);
+      }
+
+      const syncStats = plugin().service('syncStats');
+      const reportHandle = syncStats?.createRunReport
+        ? await syncStats.createRunReport({
+            runType: 'bulk_transfer',
+            trigger: `bulk_transfer_resume_${direction}`,
+            contentTypes: freshChunks.filter((c) => c.uid).map((c) => c.uid),
+          })
+        : null;
+
+      const job = {
+        id: newJobId(),
+        status: 'running',
+        direction,
+        scopes: source.scopes,
+        syncDeletions: !!source.syncDeletions,
+        autoContinue: overrides.autoContinue ?? !!source.autoContinue,
+        conflictStrategy: overrides.conflictStrategy || source.conflictStrategy || 'latest',
+        cursor,
+        chunks: freshChunks,
+        errors: [],
+        createdAt: now(),
+        startedAt: now(),
+        completedAt: null,
+        reportId: reportHandle?.reportId || null,
+        resumedFrom: source.id,
+      };
+
+      jobs.set(job.id, job);
+      await persistJobToHistory(job);
+
+      if (job.autoContinue) {
+        this.runToCompletion(job.id).catch((err) => {
+          strapi.log?.error?.(`[bulk-transfer] resume-from-history auto-run failed: ${err.message}`);
+        });
+      }
+
+      return this.summarize(job);
     },
   };
 };

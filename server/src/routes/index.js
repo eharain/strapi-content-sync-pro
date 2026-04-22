@@ -121,6 +121,10 @@ const adminRoutes = [
   { method: 'POST', path: '/bulk-transfer/jobs/:jobId/pause',   handler: 'bulkTransfer.pause',  config: { policies: [] } },
   { method: 'POST', path: '/bulk-transfer/jobs/:jobId/resume',  handler: 'bulkTransfer.resume', config: { policies: [] } },
   { method: 'POST', path: '/bulk-transfer/jobs/:jobId/cancel',  handler: 'bulkTransfer.cancel', config: { policies: [] } },
+  { method: 'GET',  path: '/bulk-transfer/history',             handler: 'bulkTransfer.history',      config: { policies: [] } },
+  { method: 'POST', path: '/bulk-transfer/history/clear',       handler: 'bulkTransfer.clearHistory', config: { policies: [] } },
+  { method: 'POST', path: '/bulk-transfer/history/:historyId/restart', handler: 'bulkTransfer.restart', config: { policies: [] } },
+  { method: 'POST', path: '/bulk-transfer/history/:historyId/resume',  handler: 'bulkTransfer.resumeFromHistory', config: { policies: [] } },
 ];
 
 module.exports = {
