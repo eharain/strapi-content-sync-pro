@@ -54,6 +54,17 @@ module.exports = ({ strapi }) => {
     }
   }
 
+  // Serialize history writes. Multiple paths (auto-run loop, pause, status
+  // polling, resume) can mutate history concurrently; without a queue the
+  // classic read-modify-write pattern loses updates.
+  let historyWriteChain = Promise.resolve();
+  function queueHistoryWrite(task) {
+    const next = historyWriteChain.then(task, task);
+    // Swallow rejection on the chain so future tasks still run.
+    historyWriteChain = next.catch(() => {});
+    return next;
+  }
+
   async function writeHistory(entries) {
     try {
       await getStore().set({ key: HISTORY_STORE_KEY, value: entries.slice(0, HISTORY_MAX) });
@@ -74,6 +85,9 @@ module.exports = ({ strapi }) => {
       createdAt: job.createdAt,
       startedAt: job.startedAt,
       completedAt: job.completedAt,
+      pausedAt: job.pausedAt || null,
+      resumedAt: job.resumedAt || null,
+      resumedFrom: job.resumedFrom || null,
       cursor: job.cursor,
       total: job.chunks.length,
       errors: job.errors,
@@ -83,7 +97,10 @@ module.exports = ({ strapi }) => {
         uid: c.uid || null,
         profileId: c.profileId || null,
         label: c.label,
-        status: c.status,
+        // Never persist transient 'running' — if the process is paused or
+        // dies mid-chunk, reloaded entry must indicate the chunk needs to
+        // be resumed (resumeFromHistory treats non-terminal chunks that way).
+        status: c.status === 'running' ? 'paused' : c.status,
         selected: c.selected !== false,
         page: c.page || 0,
         pagesTotal: c.pagesTotal || null,
@@ -92,17 +109,25 @@ module.exports = ({ strapi }) => {
         errors: c.errors || 0,
         error: c.error || null,
         warning: c.warning || null,
+        startedAt: c.startedAt || null,
+        completedAt: c.completedAt || null,
       })),
     };
   }
 
-  async function persistJobToHistory(job) {
-    const history = await readHistory();
-    const snap = snapshotForHistory(job);
-    const existingIdx = history.findIndex((h) => h.id === job.id);
-    if (existingIdx >= 0) history[existingIdx] = snap;
-    else history.unshift(snap);
-    await writeHistory(history);
+  function persistJobToHistory(job) {
+    // Serialize through the write queue so concurrent updaters (auto-run
+    // loop, pause/resume, status polling) don't clobber each other. We
+    // snapshot inside the queued task to match the in-memory state at
+    // serialization time.
+    return queueHistoryWrite(async () => {
+      const history = await readHistory();
+      const snap = snapshotForHistory(job);
+      const existingIdx = history.findIndex((h) => h.id === job.id);
+      if (existingIdx >= 0) history[existingIdx] = snap;
+      else history.unshift(snap);
+      await writeHistory(history);
+    });
   }
 
   function listSyncableContentTypeUids() {
@@ -205,6 +230,7 @@ module.exports = ({ strapi }) => {
         // Paused or cancelled: stop between pages so next resume picks up.
         return {
           paused: job.status === 'paused',
+          cancelled: job.status === 'cancelled',
           page: chunk.page,
           pagesTotal: chunk.pagesTotal,
           pushed: chunk.pushed,
@@ -247,13 +273,57 @@ module.exports = ({ strapi }) => {
       // No active media profile; skip with a clear status.
       return { skipped: true, reason: chunk.warning || 'No media profile to run' };
     }
+
+    // Media sync is not paginated internally — it runs as one long call per
+    // profile. Mark the chunk as "page 1 of 1" so the UI shows progress
+    // instead of a stale 0/0 while the job is working.
+    chunk.pageSize = chunk.pageSize || null;
+    chunk.page = 0;
+    chunk.pagesTotal = 1;
+    chunk.pushed = chunk.pushed || 0;
+    chunk.pulled = chunk.pulled || 0;
+    chunk.errors = chunk.errors || 0;
+    chunk.lastPageAt = now();
+
+    let summary;
     if (syncMedia.runProfile) {
-      return syncMedia.runProfile(chunk.profileId);
+      summary = await syncMedia.runProfile(chunk.profileId);
+    } else if (syncMedia.run) {
+      summary = await syncMedia.run({ profileId: chunk.profileId });
+    } else {
+      throw new Error('Media sync service does not expose runProfile/run');
     }
-    if (syncMedia.run) {
-      return syncMedia.run({ profileId: chunk.profileId });
+
+    // Normalize media summary onto chunk counters so summarize() (and the
+    // admin UI) surfaces runtime stats for media chunks the same way it
+    // does for content chunks.
+    const pushed = Number(summary?.pushed) || 0;
+    const pulled = Number(summary?.pulled) || 0;
+    const dbRowsUpdated = Number(summary?.dbRowsUpdated) || 0;
+    const morphLinksApplied = Number(summary?.morphLinksApplied) || 0;
+    const errorsArr = Array.isArray(summary?.errors) ? summary.errors : [];
+
+    // For media, "pushed/pulled" from the summary reflect file-byte ops.
+    // Add DB row and morph link updates into the directional counter so
+    // the UI's total isn't misleadingly zero for DB-rows-only profiles.
+    if (job.direction === 'push') {
+      chunk.pushed += pushed + dbRowsUpdated + morphLinksApplied;
+    } else {
+      chunk.pulled += pulled + dbRowsUpdated + morphLinksApplied;
     }
-    throw new Error('Media sync service does not expose runProfile/run');
+    chunk.errors += errorsArr.length;
+    chunk.page = 1;
+    chunk.pagesTotal = 1;
+    chunk.lastPageAt = now();
+
+    return {
+      ...summary,
+      pushed: chunk.pushed,
+      pulled: chunk.pulled,
+      errors: chunk.errors,
+      page: chunk.page,
+      pagesTotal: chunk.pagesTotal,
+    };
   }
 
   async function executeChunk(job, chunk) {
@@ -282,6 +352,13 @@ module.exports = ({ strapi }) => {
         chunk.status = 'paused';
         chunk.result = result;
         return { paused: true };
+      }
+      if (result?.cancelled) {
+        // Leave the chunk in 'paused' state so its progress is preserved
+        // and a future resume-from-history can pick it up.
+        chunk.status = 'paused';
+        chunk.result = result;
+        return { cancelled: true };
       }
       chunk.status = result?.skipped ? 'skipped' : 'success';
       chunk.result = result || null;
@@ -416,7 +493,7 @@ module.exports = ({ strapi }) => {
       }
       const chunk = job.chunks[job.cursor];
       const r = await executeChunk(job, chunk);
-      if (!r.paused) {
+      if (!r.paused && !r.cancelled) {
         job.cursor += 1;
       }
       if (job.cursor >= job.chunks.length) await this.finish(job);
@@ -441,7 +518,7 @@ module.exports = ({ strapi }) => {
         const r = await executeChunk(job, chunk);
         // eslint-disable-next-line no-await-in-loop
         await persistJobToHistory(job);
-        if (r.paused) break;
+        if (r.paused || r.cancelled) break;
         job.cursor += 1;
       }
       if (job.status === 'running' && job.cursor >= job.chunks.length) await this.finish(job);
@@ -742,7 +819,19 @@ module.exports = ({ strapi }) => {
         });
       }
 
-      return this.summarize(job);
+      // Include the rehydrated form state so the admin UI can restore
+      // direction / scopes / selection exactly as they were when the run
+      // was paused. This makes resume visually "pick up where it left off".
+      const summary = this.summarize(job);
+      summary.restoredState = {
+        direction,
+        scopes: { ...source.scopes },
+        syncDeletions: !!source.syncDeletions,
+        autoContinue: job.autoContinue,
+        conflictStrategy: job.conflictStrategy,
+        selectedIndexes: freshChunks.filter((c) => c.selected !== false).map((c) => c.index),
+      };
+      return summary;
     },
   };
 };

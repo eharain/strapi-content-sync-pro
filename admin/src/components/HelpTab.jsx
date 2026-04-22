@@ -49,6 +49,7 @@ export const HelpTab = () => {
           <Tabs.Trigger value="content-types">Content Types</Tabs.Trigger>
           <Tabs.Trigger value="sync-profiles">Sync Profiles</Tabs.Trigger>
           <Tabs.Trigger value="execution">Sync Execution</Tabs.Trigger>
+          <Tabs.Trigger value="bulk-transfer">Bulk Transfer</Tabs.Trigger>
           <Tabs.Trigger value="media">Media</Tabs.Trigger>
           <Tabs.Trigger value="stats">Stats</Tabs.Trigger>
           <Tabs.Trigger value="enforcement">Enforcement</Tabs.Trigger>
@@ -130,6 +131,8 @@ export const HelpTab = () => {
                 <li><Typography variant="omega">Conflict resolution strategies (Latest, Local, Remote wins)</Typography></li>
                 <li><Typography variant="omega">Pagination support for large datasets with bounded memory usage</Typography></li>
                 <li><Typography variant="omega">Dependency resolution - sync related entities automatically</Typography></li>
+                <li><Typography variant="omega"><strong>Bulk Transfer</strong> - top-level tab for one-click full push / full pull with selectable chunks, page-level progress, pause / resume / cancel, and persisted run history (restart or resume any previous run)</Typography></li>
+                <li><Typography variant="omega">Media sync (URL or rsync) with MIME filters and morph-link remapping</Typography></li>
                 <li><Typography variant="omega">Enforcement checks - schema, version, and time validation</Typography></li>
                 <li><Typography variant="omega">Configurable alerts via email, webhook, or Strapi logs</Typography></li>
                 <li><Typography variant="omega">Secure communication via API tokens and HMAC signatures</Typography></li>
@@ -143,6 +146,7 @@ export const HelpTab = () => {
               <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
                 <li><Typography variant="omega"><strong>Sync Profiles</strong> - Define WHAT to sync (direction, conflict strategy, field policies)</Typography></li>
                 <li><Typography variant="omega"><strong>Sync Execution</strong> - Define WHEN to sync (on-demand, scheduled, live) and dependency handling</Typography></li>
+                <li><Typography variant="omega"><strong>Bulk Transfer</strong> - One-click full pull / push across selectable chunks with pause / resume and persisted history (separate top-level tab)</Typography></li>
                 <li><Typography variant="omega"><strong>Enforcement</strong> - Pre-sync validation (schema match, version check, time sync)</Typography></li>
                 <li><Typography variant="omega"><strong>Alerts</strong> - Notifications for sync success/failure</Typography></li>
               </ul>
@@ -153,7 +157,8 @@ export const HelpTab = () => {
                 <li><Typography variant="omega"><strong>Configuration Tab</strong> - Set up remote server URL, API token, instance ID, and shared secret</Typography></li>
                 <li><Typography variant="omega"><strong>Content Types Tab</strong> - Enable content types for sync (auto-generates default profiles)</Typography></li>
                 <li><Typography variant="omega"><strong>Sync Profiles Tab</strong> - Customize sync behavior or use defaults</Typography></li>
-                <li><Typography variant="omega"><strong>Sync Execution Tab</strong> - Configure execution settings, page size, and run sync operations</Typography></li>
+                <li><Typography variant="omega"><strong>Sync Tab</strong> - Configure execution settings, page size, and run sync operations</Typography></li>
+                <li><Typography variant="omega"><strong>Bulk Transfer Tab</strong> - For a first-time migration or full refresh, run a one-click Full Pull or Full Push with selectable chunks, pause / resume, and persisted run history</Typography></li>
               </ol>
             </HelpSection>
 
@@ -570,24 +575,13 @@ http://localhost:1337</CodeBlock>
 
             <HelpSection title="Bulk Transfer (Full Pull / Full Push)">
               <Typography variant="omega">
-                The <strong>Bulk Transfer</strong> sub-tab in Sync is a one-click helper for moving
-                everything between local and remote. Pick a direction, select scopes, and start.
+                Bulk Transfer is now its own <strong>top-level tab</strong> (separate from Sync). It is a
+                one-click helper for moving everything between local and remote, with selectable chunks,
+                page-level progress, pause / resume / cancel, and a persisted run history you can restart
+                or resume from.
               </Typography>
-              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
-                <li><Typography variant="omega"><strong>Direction</strong> - Full Pull (remote → local) or Full Push (local → remote). In single-side mode only Full Pull is available.</Typography></li>
-                <li><Typography variant="omega"><strong>Scopes</strong> - User-generated content (all <code>api::*</code>), Media (files + morph links via active media profiles), Strapi Users (<code>plugin::users-permissions.user</code>), Admin Users (<code>admin::user</code> — experimental).</Typography></li>
-                <li><Typography variant="omega"><strong>Apply deletions</strong> - Destination removes items missing on source. Use with care, especially with user scopes.</Typography></li>
-                <li><Typography variant="omega"><strong>Auto-continue</strong> - When on, chunks run back-to-back to completion. When off, the run pauses after each chunk so you can review progress and click <strong>Run Next Chunk</strong>.</Typography></li>
-                <li><Typography variant="omega"><strong>Conflict strategy</strong> - Latest updated wins (default), Local wins, or Remote wins.</Typography></li>
-              </ul>
               <Typography variant="omega" paddingTop={2}>
-                A Bulk Transfer job expands into one chunk per content type and one chunk per active
-                media profile. The chunk list shows status (pending / running / success / skipped /
-                error) and any error message per chunk. Each run is also recorded as a Stats report
-                (runType <code>bulk_transfer</code>).
-              </Typography>
-              <Typography variant="pi" textColor="warning600" paddingTop={2}>
-                Note: Job state is in-memory. Restarting Strapi cancels any in-flight bulk transfer.
+                See the <strong>Bulk Transfer</strong> help tab for the full guide.
               </Typography>
             </HelpSection>
 
@@ -602,11 +596,103 @@ http://localhost:1337</CodeBlock>
                 <li><Typography variant="omega"><strong>Next Run</strong> - When scheduled sync will run next</Typography></li>
                 <li><Typography variant="omega"><strong>Status</strong> - Running or Idle</Typography></li>
               </ul>
-            </HelpSection>
-          </Box>
-        </Tabs.Content>
+                 </HelpSection>
+              </Box>
+            </Tabs.Content>
 
-        {/* Media Tab */}
+            {/* Bulk Transfer Tab */}
+            <Tabs.Content value="bulk-transfer">
+              <Box paddingTop={4}>
+                <HelpSection title="What is Bulk Transfer?">
+                  <Typography variant="omega">
+                    <strong>Bulk Transfer</strong> is a dedicated top-level tab for one-click, full-scope data
+                    movement between the local and remote Strapi instances. It is the fastest way to perform an
+                    initial migration, a full refresh, or a disaster-recovery style mirror, without having to
+                    orchestrate individual Sync Profiles.
+                  </Typography>
+                  <Typography variant="omega" paddingTop={2}>
+                    Unlike the Sync tab — which is profile-driven and can be scheduled or live — Bulk Transfer is
+                    an explicit, user-driven run: pick a direction, pick the scopes, pick (or deselect) the chunks,
+                    and start. It is designed to be safely pausable, resumable, and inspectable.
+                  </Typography>
+                </HelpSection>
+
+                <HelpSection title="Direction & Scopes">
+                  <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                    <li><Typography variant="omega"><strong>Direction</strong> — <em>Full Pull</em> (remote → local) or <em>Full Push</em> (local → remote). In <strong>Single-side</strong> mode only Full Pull is available.</Typography></li>
+                    <li><Typography variant="omega"><strong>Content</strong> — All user-defined <code>api::*</code> content types.</Typography></li>
+                    <li><Typography variant="omega"><strong>Media</strong> — Files and morph links via the active media profiles.</Typography></li>
+                    <li><Typography variant="omega"><strong>Strapi Users</strong> — <code>plugin::users-permissions.user</code>.</Typography></li>
+                    <li><Typography variant="omega"><strong>Admin Users</strong> — <code>admin::user</code> (experimental; use with care).</Typography></li>
+                    <li><Typography variant="omega"><strong>Apply deletions</strong> — Destination removes items missing on source. Use with care, especially with user scopes.</Typography></li>
+                    <li><Typography variant="omega"><strong>Conflict strategy</strong> — Latest updated wins (default), Local wins, or Remote wins.</Typography></li>
+                    <li><Typography variant="omega"><strong>Auto-continue</strong> — Run all selected chunks back-to-back, or pause between chunks to review.</Typography></li>
+                  </ul>
+                </HelpSection>
+
+                <HelpSection title="Selectable Chunks & Page-level Progress">
+                  <Typography variant="omega">
+                    A bulk job expands into one <strong>chunk</strong> per content type and one chunk per active
+                    media profile (plus any selected user scopes). In the Run Transfer view you can:
+                  </Typography>
+                  <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                    <li><Typography variant="omega">Toggle individual chunks, or use <strong>Select / Deselect All</strong> to run only a subset.</Typography></li>
+                    <li><Typography variant="omega">Watch per-chunk <strong>page progress</strong> (<code>page X of Y</code>, records pushed / pulled, errors) updated in near real-time.</Typography></li>
+                    <li><Typography variant="omega">See consolidated run stats (total pushed, pulled, errors, pages done) and a spinner while the job is actively processing.</Typography></li>
+                    <li><Typography variant="omega">Use <strong>Pause</strong> to stop after the current page, <strong>Resume</strong> to continue from the exact saved cursor, <strong>Run Next Chunk</strong> in manual mode, or <strong>Cancel</strong> to stop the run without losing the progress already made.</Typography></li>
+                  </ul>
+                  <Typography variant="pi" textColor="neutral600" paddingTop={2}>
+                    Because transfer is paginated end-to-end using the global <code>syncPageSize</code>, memory
+                    stays bounded even on very large datasets.
+                  </Typography>
+                </HelpSection>
+
+                <HelpSection title="Pause, Resume & Cancel">
+                  <Typography variant="omega">
+                    Bulk Transfer treats <strong>pause</strong>, <strong>cancel</strong>, and <strong>resume</strong> as
+                    first-class operations:
+                  </Typography>
+                  <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                    <li><Typography variant="omega"><strong>Pause</strong> — Stops after the current page finishes. The chunk cursor, page number, and counters are persisted, so resume continues from the same place.</Typography></li>
+                    <li><Typography variant="omega"><strong>Cancel</strong> — Distinct from pause: the run is marked cancelled and the in-flight chunk is preserved as <em>paused</em> with accumulated progress, not falsely reported as successful.</Typography></li>
+                    <li><Typography variant="omega"><strong>Resume</strong> — Re-opens the run exactly where it stopped: same direction, scopes, deletion flag, auto-continue, conflict strategy, and the same chunk selection, with cursor/page restored.</Typography></li>
+                  </ul>
+                </HelpSection>
+
+                <HelpSection title="Previous Runs & History">
+                  <Typography variant="omega">
+                    Every bulk run — completed, paused, cancelled, or failed — is recorded in the
+                    <strong> Previous Runs</strong> sub-tab. History is persisted in the plugin store (not just
+                    in memory), with serialized writes so concurrent updates from the polling loop and control
+                    actions never clobber each other.
+                  </Typography>
+                  <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                    <li><Typography variant="omega"><strong>Expand</strong> a row to inspect per-chunk status, page progress, record counts, and error messages for that run.</Typography></li>
+                    <li><Typography variant="omega"><strong>Restart</strong> — Re-runs the same configuration from scratch (fresh cursor) while keeping the original entry in history.</Typography></li>
+                    <li><Typography variant="omega"><strong>Resume</strong> — For paused / cancelled / incomplete runs, rehydrates the Run Transfer tab with the exact prior state (direction, scopes, options, chunk selection) and continues from the saved cursor and page.</Typography></li>
+                    <li><Typography variant="omega"><strong>Clear history</strong> — Removes the stored history entries.</Typography></li>
+                  </ul>
+                  <Typography variant="omega" paddingTop={2}>
+                    Each run is also recorded as a Stats report with <code>runType = bulk_transfer</code>, so the
+                    before/after snapshots are available in the Stats tab.
+                  </Typography>
+                </HelpSection>
+
+                <HelpSection title="Bulk Transfer vs Sync">
+                  <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                    <li><Typography variant="omega"><strong>Sync</strong> is <em>profile-driven</em>: on-demand, scheduled, or live; intended for ongoing incremental synchronization with field-level policies.</Typography></li>
+                    <li><Typography variant="omega"><strong>Bulk Transfer</strong> is <em>operation-driven</em>: an explicit full pull/push, chunked and resumable, intended for migrations, backfills, and full refreshes.</Typography></li>
+                  </ul>
+                  <Typography variant="pi" textColor="warning600" paddingTop={2}>
+                    Note: The active in-memory job registry is cleared on Strapi restart, but the run history
+                    (and its saved cursor/page/selection) is persisted — so after a restart you can open Previous
+                    Runs and <strong>Resume</strong> the interrupted job.
+                  </Typography>
+                </HelpSection>
+              </Box>
+            </Tabs.Content>
+
+            {/* Media Tab */}
         <Tabs.Content value="media">
           <Box paddingTop={4}>
             <HelpSection title="Pagination for Large Datasets">

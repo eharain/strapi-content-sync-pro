@@ -31,8 +31,16 @@ const HomePage = () => {
         <Main>
             <Box padding={8} background="neutral100">
                 <Typography variant="alpha" tag="h1">
-                    Content Sync Pro Plugin - Reliable Data Synchronization for Strapi Environments
+                    Content Sync Pro Plugin - Bulk Data Transfer, Live Sync, and Automated Content Replication between Strapi instances
                 </Typography>
+                <Box paddingTop={2}>
+                    <Typography variant="omega" textColor="neutral600">
+                        Copy, migrate, and keep content, media, users, and relations in sync across environments.
+                        Run full one-click Bulk Transfers with selectable chunks, page-level progress, pause /
+                        resume / cancel, and persisted run history — alongside profile-driven bi-directional sync,
+                        field-level policies, scheduling, live hooks, and alerts.
+                    </Typography>
+                </Box>
             
 
                 <Box paddingTop={4} paddingBottom={6}>
