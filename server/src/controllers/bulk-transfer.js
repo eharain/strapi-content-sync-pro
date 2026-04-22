@@ -98,4 +98,44 @@ module.exports = ({ strapi }) => ({
       ctx.throw(500, err.message);
     }
   },
+
+  async history(ctx) {
+    try {
+      const data = await svc(strapi).getHistory();
+      ctx.body = { data };
+    } catch (err) {
+      ctx.throw(500, err.message);
+    }
+  },
+
+  async clearHistory(ctx) {
+    try {
+      const data = await svc(strapi).clearHistory();
+      ctx.body = { data };
+    } catch (err) {
+      ctx.throw(500, err.message);
+    }
+  },
+
+  async restart(ctx) {
+    try {
+      const { historyId } = ctx.params;
+      const body = ctx.request.body || {};
+      const data = await svc(strapi).restart(historyId, body);
+      ctx.body = { data };
+    } catch (err) {
+      ctx.throw(400, err.message);
+    }
+  },
+
+  async resumeFromHistory(ctx) {
+    try {
+      const { historyId } = ctx.params;
+      const body = ctx.request.body || {};
+      const data = await svc(strapi).resumeFromHistory(historyId, body);
+      ctx.body = { data };
+    } catch (err) {
+      ctx.throw(400, err.message);
+    }
+  },
 });
