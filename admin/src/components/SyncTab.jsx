@@ -25,6 +25,7 @@ import {
 } from '@strapi/design-system';
 import { Play, Clock, Cog, ArrowUp, ArrowDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
+import BulkTransferTab from './BulkTransferTab';
 
 const PLUGIN_ID = 'strapi-content-sync-pro';
 
@@ -433,6 +434,7 @@ const SyncTab = () => {
       <Tabs.Root defaultValue="execute">
         <Tabs.List>
           <Tabs.Trigger value="execute">Execute Sync</Tabs.Trigger>
+          <Tabs.Trigger value="bulk">Bulk Transfer</Tabs.Trigger>
           <Tabs.Trigger value="status">Execution Status</Tabs.Trigger>
           <Tabs.Trigger value="info">How It Works</Tabs.Trigger>
         </Tabs.List>
@@ -708,6 +710,10 @@ const SyncTab = () => {
                 </Box>
               </Box>
             </Box>
+          </Tabs.Content>
+
+          <Tabs.Content value="bulk">
+            <BulkTransferTab syncMode={syncMode} />
           </Tabs.Content>
 
           <Tabs.Content value="status">

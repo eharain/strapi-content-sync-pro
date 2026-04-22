@@ -568,6 +568,29 @@ http://localhost:1337</CodeBlock>
               </ul>
             </HelpSection>
 
+            <HelpSection title="Bulk Transfer (Full Pull / Full Push)">
+              <Typography variant="omega">
+                The <strong>Bulk Transfer</strong> sub-tab in Sync is a one-click helper for moving
+                everything between local and remote. Pick a direction, select scopes, and start.
+              </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><Typography variant="omega"><strong>Direction</strong> - Full Pull (remote → local) or Full Push (local → remote). In single-side mode only Full Pull is available.</Typography></li>
+                <li><Typography variant="omega"><strong>Scopes</strong> - User-generated content (all <code>api::*</code>), Media (files + morph links via active media profiles), Strapi Users (<code>plugin::users-permissions.user</code>), Admin Users (<code>admin::user</code> — experimental).</Typography></li>
+                <li><Typography variant="omega"><strong>Apply deletions</strong> - Destination removes items missing on source. Use with care, especially with user scopes.</Typography></li>
+                <li><Typography variant="omega"><strong>Auto-continue</strong> - When on, chunks run back-to-back to completion. When off, the run pauses after each chunk so you can review progress and click <strong>Run Next Chunk</strong>.</Typography></li>
+                <li><Typography variant="omega"><strong>Conflict strategy</strong> - Latest updated wins (default), Local wins, or Remote wins.</Typography></li>
+              </ul>
+              <Typography variant="omega" paddingTop={2}>
+                A Bulk Transfer job expands into one chunk per content type and one chunk per active
+                media profile. The chunk list shows status (pending / running / success / skipped /
+                error) and any error message per chunk. Each run is also recorded as a Stats report
+                (runType <code>bulk_transfer</code>).
+              </Typography>
+              <Typography variant="pi" textColor="warning600" paddingTop={2}>
+                Note: Job state is in-memory. Restarting Strapi cancels any in-flight bulk transfer.
+              </Typography>
+            </HelpSection>
+
             <HelpSection title="Execution Status">
               <Typography variant="omega">
                 The Status tab in Sync shows the current state of all profiles:

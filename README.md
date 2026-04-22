@@ -60,6 +60,7 @@ Plugin intro: https://youtu.be/hr3dD6dLgLQ
 - **Enforcement Checks** - Pre-sync schema compatibility validation, version checks, and server time drift checks.
 - **Alerts & Logging** - Detailed sync logs. Receive success/failure alerts via Email (using Strapi's email provider) or Webhooks.
 - **Stats & Run Reports** - Local/remote counts and newest timestamps per content type, with before/after snapshots for each sync run.
+- **Bulk Transfer** - One-click full pull or full push across selected scopes (content, media, users, admin users) with optional deletion sync and chunk-by-chunk progress (auto-advance or pause between chunks).
 - **Retention Controls** - Manual clear and automatic retention limits for logs and run reports.
 - **Secure Communication** - API token authentication combined with HMAC-SHA256 request signing using a shared secret.
 

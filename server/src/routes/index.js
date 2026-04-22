@@ -110,6 +110,17 @@ const adminRoutes = [
   { method: 'GET',  path: '/dependencies/:uid/sync-order', handler: 'dependencies.getSyncOrder', config: { policies: [] } },
   { method: 'GET',  path: '/dependencies/:uid/summary',    handler: 'dependencies.getSummary',   config: { policies: [] } },
   { method: 'POST', path: '/dependencies/clear-cache',     handler: 'dependencies.clearCache',   config: { policies: [] } },
+
+  // Bulk Transfer (one-click full pull / full push)
+  { method: 'POST', path: '/bulk-transfer/preview',         handler: 'bulkTransfer.preview', config: { policies: [] } },
+  { method: 'POST', path: '/bulk-transfer/start',           handler: 'bulkTransfer.start',   config: { policies: [] } },
+  { method: 'GET',  path: '/bulk-transfer/jobs',            handler: 'bulkTransfer.list',    config: { policies: [] } },
+  { method: 'GET',  path: '/bulk-transfer/jobs/:jobId',     handler: 'bulkTransfer.status',  config: { policies: [] } },
+  { method: 'POST', path: '/bulk-transfer/jobs/:jobId/next',    handler: 'bulkTransfer.next',   config: { policies: [] } },
+  { method: 'POST', path: '/bulk-transfer/jobs/:jobId/run-all', handler: 'bulkTransfer.runAll', config: { policies: [] } },
+  { method: 'POST', path: '/bulk-transfer/jobs/:jobId/pause',   handler: 'bulkTransfer.pause',  config: { policies: [] } },
+  { method: 'POST', path: '/bulk-transfer/jobs/:jobId/resume',  handler: 'bulkTransfer.resume', config: { policies: [] } },
+  { method: 'POST', path: '/bulk-transfer/jobs/:jobId/cancel',  handler: 'bulkTransfer.cancel', config: { policies: [] } },
 ];
 
 module.exports = {

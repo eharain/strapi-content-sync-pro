@@ -1,6 +1,6 @@
 'use strict';
 
-const { fetchLocalRecords, fetchRemoteRecords } = require('../utils/fetcher');
+const { fetchLocalRecords, fetchRemoteRecords, fetchLocalPage, fetchRemotePage } = require('../utils/fetcher');
 const { compareRecords } = require('../utils/comparator');
 const { applyLocal, applyRemote, deleteLocal, deleteRemote } = require('../utils/applier');
 
@@ -370,6 +370,142 @@ module.exports = ({ strapi }) => {
         });
         throw err;
       }
+    },
+
+    /**
+     * Sync a SINGLE PAGE of a content type. Used by the bulk-transfer (Full
+     * Sync) engine to process large content types page-by-page so that
+     * progress can be reported and the job can be paused / resumed between
+     * pages.
+     *
+     * options:
+     *   - profile: synthetic/real profile (direction, conflictStrategy, syncDeletions)
+     *   - page: 1-based page number (default 1)
+     *   - pageSize: records per page (default from global settings or 100)
+     *   - lastSyncAt: optional ISO timestamp; when omitted this runs a full
+     *     page scan (preferred for bulk transfer). When provided it acts
+     *     incremental.
+     *
+     * Returns:
+     *   { uid, page, pageSize, pushed, pulled, errors, hasMore,
+     *     localCount, remoteCount, remoteTotal, remotePageCount }
+     */
+    async syncContentTypePage(uid, options = {}) {
+      if (!uid) throw new Error('Content type uid is required');
+
+      const logService = plugin().service('syncLog');
+      const configService = plugin().service('config');
+      const syncConfigService = plugin().service('syncConfig');
+      const syncProfilesService = plugin().service('syncProfiles');
+      const executionService = plugin().service('syncExecution');
+
+      const remoteConfig = await configService.getConfig({ safe: false });
+      if (!remoteConfig || !remoteConfig.baseUrl) {
+        throw new Error('Remote server not configured');
+      }
+
+      const { profile } = options;
+      const syncConfig = await syncConfigService.getSyncConfig();
+      const ctConfig = (syncConfig.contentTypes || []).find((ct) => ct.uid === uid) || { uid, fields: [] };
+
+      const direction = profile?.direction || ctConfig.direction || 'both';
+      const conflictStrategy = profile?.conflictStrategy || syncConfig.conflictStrategy || 'latest';
+      const syncDeletions = !!(profile?.syncDeletions);
+      const fields = ctConfig.fields || [];
+
+      let fieldPolicies = null;
+      if (profile && !profile.isSimple && Array.isArray(profile.fieldPolicies) && profile.fieldPolicies.length > 0) {
+        fieldPolicies = {};
+        for (const fp of profile.fieldPolicies) fieldPolicies[fp.field] = fp.direction;
+      } else if (!profile) {
+        fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
+      }
+
+      const globalExec = (await executionService.getGlobalSettings?.()) || {};
+      const pageSize = Number(options.pageSize) || Number(globalExec.syncPageSize) || 100;
+      const page = Math.max(1, Number(options.page) || 1);
+      const lastSyncAt = options.lastSyncAt || null;
+
+      let pushed = 0;
+      let pulled = 0;
+      let errors = 0;
+
+      const localPageRes = await fetchLocalPage(strapi, uid, { fields, lastSyncAt, page, pageSize });
+      const remotePageRes = await fetchRemotePage(remoteConfig, uid, { fields, lastSyncAt, page, pageSize });
+
+      const localRecords = localPageRes.records || [];
+      const remoteRecords = remotePageRes.records || [];
+
+      // NOTE: comparator works on the page slice only. Cross-side deletion
+      // detection is intentionally disabled here because a record missing
+      // from this page may live on another page; full-set deletion sync
+      // should use the incremental path instead.
+      const diff = compareRecords(localRecords, remoteRecords, {
+        direction,
+        conflictStrategy,
+        syncDeletions: false,
+      });
+
+      for (const { local } of diff.toPush) {
+        try {
+          const filtered = syncProfilesService.filterFieldsByPolicy(local, fieldPolicies, 'push');
+          await applyRemote(remoteConfig, uid, filtered, fields);
+          pushed++;
+        } catch (err) {
+          errors++;
+          await logService.log({ action: 'push', contentType: uid, syncId: local.syncId, direction: 'push', status: 'error', message: err.message });
+        }
+      }
+
+      for (const { remote } of diff.toPull) {
+        try {
+          const filtered = syncProfilesService.filterFieldsByPolicy(remote, fieldPolicies, 'pull');
+          await applyLocal(strapi, uid, filtered, fields);
+          pulled++;
+        } catch (err) {
+          errors++;
+          await logService.log({ action: 'pull', contentType: uid, syncId: remote.syncId, direction: 'pull', status: 'error', message: err.message });
+        }
+      }
+
+      for (const record of diff.toCreateRemote) {
+        try {
+          const filtered = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'push');
+          await applyRemote(remoteConfig, uid, filtered, fields);
+          pushed++;
+        } catch (err) {
+          errors++;
+          await logService.log({ action: 'create_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
+        }
+      }
+
+      for (const record of diff.toCreateLocal) {
+        try {
+          const filtered = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'pull');
+          await applyLocal(strapi, uid, filtered, fields);
+          pulled++;
+        } catch (err) {
+          errors++;
+          await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
+        }
+      }
+
+      // hasMore is the OR of both sides so we keep paging until both are drained
+      const hasMore = !!(localPageRes.hasMore || remotePageRes.hasMore);
+
+      return {
+        uid,
+        page,
+        pageSize,
+        pushed,
+        pulled,
+        errors,
+        hasMore,
+        localCount: localRecords.length,
+        remoteCount: remoteRecords.length,
+        remoteTotal: remotePageRes.total,
+        remotePageCount: remotePageRes.pageCount,
+      };
     },
 
     /**
