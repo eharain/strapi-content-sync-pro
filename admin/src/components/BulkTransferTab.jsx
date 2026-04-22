@@ -224,7 +224,27 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
         `/${PLUGIN_ID}/bulk-transfer/history/${historyId}/resume`,
         {}
       );
-      setJob(data?.data || null);
+      const jobData = data?.data || null;
+      // Rehydrate the Run Transfer form so the UI visibly restores the
+      // configuration and chunk selection exactly as they were when paused.
+      const rs = jobData?.restoredState;
+      if (rs) {
+        setDirection(rs.direction || 'pull');
+        setScopes({
+          content: !!rs.scopes?.content,
+          media: !!rs.scopes?.media,
+          users: !!rs.scopes?.users,
+          admins: !!rs.scopes?.admins,
+        });
+        setSyncDeletions(!!rs.syncDeletions);
+        setAutoContinue(!!rs.autoContinue);
+        setConflictStrategy(rs.conflictStrategy || 'latest');
+        const sel = {};
+        const selSet = new Set((rs.selectedIndexes || []).map(Number));
+        for (const c of jobData?.chunks || []) sel[c.index] = selSet.has(c.index);
+        setSelected(sel);
+      }
+      setJob(jobData);
       setSubTab('run');
       setMessage({ type: 'success', text: 'Resumed bulk transfer from where it left off.' });
       await loadHistory();

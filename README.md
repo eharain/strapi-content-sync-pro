@@ -60,7 +60,8 @@ Plugin intro: https://youtu.be/hr3dD6dLgLQ
 - **Enforcement Checks** - Pre-sync schema compatibility validation, version checks, and server time drift checks.
 - **Alerts & Logging** - Detailed sync logs. Receive success/failure alerts via Email (using Strapi's email provider) or Webhooks.
 - **Stats & Run Reports** - Local/remote counts and newest timestamps per content type, with before/after snapshots for each sync run.
-- **Bulk Transfer** - One-click full pull or full push across selected scopes (content, media, users, admin users) with optional deletion sync and chunk-by-chunk progress (auto-advance or pause between chunks).
+- **Bulk Transfer** - Dedicated top-level tab for one-click full pull or full push across selectable scopes (content, media, Strapi users, admin users). Expands into per-content-type and per-media-profile chunks with page-level progress, selectable chunks, optional deletion sync, and auto-continue or manual chunk-by-chunk stepping.
+- **Pause / Resume / Cancel & Persisted History** - Bulk Transfer jobs can be paused after the current page (cursor, page number, and counters preserved), cancelled without losing progress, and resumed later from the exact saved state. Every run is stored in a persistent history so you can inspect per-chunk results and **restart** or **resume** any previous run — even after a Strapi restart.
 - **Retention Controls** - Manual clear and automatic retention limits for logs and run reports.
 - **Secure Communication** - API token authentication combined with HMAC-SHA256 request signing using a shared secret.
 
