@@ -39,6 +39,7 @@ module.exports = ({ strapi }) => {
       const configService = plugin().service('config');
       const syncConfigService = plugin().service('syncConfig');
       const syncProfilesService = plugin().service('syncProfiles');
+      const dependencyResolver = plugin().service('dependencyResolver');
       const executionService = plugin().service('syncExecution');
 
       const remoteConfig = await configService.getConfig({ safe: false });
@@ -49,6 +50,47 @@ module.exports = ({ strapi }) => {
       const syncConfig = await syncConfigService.getSyncConfig();
       const enabledTypes = (syncConfig.contentTypes || []).filter((ct) => ct.enabled);
 
+      // Reorder enabled types so dependency targets are processed before
+      // dependents. This improves relation consistency during full sync.
+      const enabledSet = new Set(enabledTypes.map((ct) => ct.uid));
+      const inDegree = new Map();
+      const adjacency = new Map();
+      enabledTypes.forEach((ct) => {
+        inDegree.set(ct.uid, 0);
+        adjacency.set(ct.uid, []);
+      });
+      for (const ct of enabledTypes) {
+        try {
+          const rels = dependencyResolver.analyzeContentType(ct.uid)?.relations || [];
+          for (const rel of rels) {
+            const depUid = rel.target;
+            if (!enabledSet.has(depUid) || depUid === ct.uid) continue;
+            adjacency.get(depUid).push(ct.uid);
+            inDegree.set(ct.uid, (inDegree.get(ct.uid) || 0) + 1);
+          }
+        } catch (_) {
+          // Ignore schema parse failures and keep original order fallback.
+        }
+      }
+      const queue = enabledTypes.map((ct) => ct.uid).filter((uid) => (inDegree.get(uid) || 0) === 0);
+      const orderedUids = [];
+      while (queue.length > 0) {
+        const uid = queue.shift();
+        orderedUids.push(uid);
+        for (const next of adjacency.get(uid) || []) {
+          const deg = (inDegree.get(next) || 0) - 1;
+          inDegree.set(next, deg);
+          if (deg === 0) queue.push(next);
+        }
+      }
+      // Cycle fallback: append any remaining in original order.
+      for (const ct of enabledTypes) {
+        if (!orderedUids.includes(ct.uid)) orderedUids.push(ct.uid);
+      }
+      const enabledTypesOrdered = orderedUids
+        .map((uid) => enabledTypes.find((ct) => ct.uid === uid))
+        .filter(Boolean);
+
       // Pagination — remote + local fetches are chunked to keep memory bounded
       // for large datasets. Page size is a global setting tunable in the Sync tab.
       const globalExec = (await executionService.getGlobalSettings?.()) || {};
@@ -57,7 +99,7 @@ module.exports = ({ strapi }) => {
       const reportHandle = await syncStatsService.createRunReport({
         runType: 'sync_now',
         trigger: 'manual_sync_now',
-        contentTypes: enabledTypes.map((ct) => ct.uid),
+        contentTypes: enabledTypesOrdered.map((ct) => ct.uid),
       });
 
       try {
@@ -71,7 +113,7 @@ module.exports = ({ strapi }) => {
         const conflictStrategy = syncConfig.conflictStrategy || 'latest';
         const results = [];
 
-        for (const ctConfig of enabledTypes) {
+        for (const ctConfig of enabledTypesOrdered) {
           const { uid, direction, fields } = ctConfig;
           const lastSyncAt = timestamps[uid] || null;
           const syncStartTime = new Date().toISOString();

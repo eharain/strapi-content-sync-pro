@@ -320,4 +320,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 **Ejaz Husain Arain**
 - GitHub: [@eharain](https://github.com/eharain)
+- LinkedIn: [Ejaz Husain Arain](https://www.linkedin.com/in/eharain/)
 - Email: eharain@yahoo.com

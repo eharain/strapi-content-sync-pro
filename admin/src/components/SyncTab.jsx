@@ -23,7 +23,7 @@ import {
   Checkbox,
   TextInput,
 } from '@strapi/design-system';
-import { Play, Clock, Cog, ArrowUp, ArrowDown } from '@strapi/icons';
+import { Play, Clock, Cog, ArrowUp, ArrowDown, CaretUp, CaretDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
 
@@ -59,8 +59,18 @@ const SyncTab = () => {
 
   // Filter and ordering
   const [profileFilter, setProfileFilter] = useState('all');
+  const [profileSearch, setProfileSearch] = useState('');
   const [executionOrder, setExecutionOrder] = useState({}); // { profileId: order }
   const [orderModified, setOrderModified] = useState(false);
+
+  // Sort state for Execute table
+  const [execSortField, setExecSortField] = useState('');
+  const [execSortDir, setExecSortDir] = useState('asc');
+
+  // Sort + search state for Status table
+  const [statusSearch, setStatusSearch] = useState('');
+  const [statusSortField, setStatusSortField] = useState('');
+  const [statusSortDir, setStatusSortDir] = useState('asc');
 
   // Selection for batch execution
   const [selectedProfiles, setSelectedProfiles] = useState([]);
@@ -85,12 +95,25 @@ const SyncTab = () => {
     loadData();
   }, []);
 
+  // Refresh data whenever this browser tab regains focus (e.g. user activated a
+  // profile in the Sync Profiles tab and switches back here).
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   const loadData = async () => {
     try {
       const [profilesRes, statusRes, globalRes, depsRes, configRes] = await Promise.all([
         get(`/${PLUGIN_ID}/sync-profiles`),
         get(`/${PLUGIN_ID}/sync-execution/status`),
         get(`/${PLUGIN_ID}/sync-execution/global-settings`),
+        // dependencies are recomputed from enabled types each load
         get(`/${PLUGIN_ID}/dependencies/all`).catch(() => ({ data: { data: {} } })),
         get(`/${PLUGIN_ID}/config`),
       ]);
@@ -407,7 +430,7 @@ const SyncTab = () => {
     return { dependsOn, dependedBy };
   };
 
-  // Filter and sort profiles
+  // Filter and sort profiles for Execute table
   const filteredProfiles = useMemo(() => {
     let result = [...profiles];
 
@@ -416,17 +439,86 @@ const SyncTab = () => {
       result = result.filter(p => p.isActive);
     }
 
-    // Sort by execution order
-    result.sort((a, b) => {
-      const orderA = executionOrder[a.id] || 999;
-      const orderB = executionOrder[b.id] || 999;
-      return orderA - orderB;
-    });
+    // Apply name search
+    if (profileSearch.trim()) {
+      const q = profileSearch.trim().toLowerCase();
+      result = result.filter(
+        (p) => p.name.toLowerCase().includes(q) || p.contentType.toLowerCase().includes(q)
+      );
+    }
+
+    // Sort by explicit column if chosen, else by execution order
+    if (execSortField) {
+      result.sort((a, b) => {
+        let aVal = a[execSortField] ?? '';
+        let bVal = b[execSortField] ?? '';
+        if (typeof aVal === 'boolean') { aVal = aVal ? 1 : 0; bVal = bVal ? 1 : 0; }
+        if (typeof aVal === 'string') {
+          return execSortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        }
+        return execSortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      });
+    } else {
+      // Sort by execution order
+      result.sort((a, b) => {
+        const orderA = executionOrder[a.id] || 999;
+        const orderB = executionOrder[b.id] || 999;
+        return orderA - orderB;
+      });
+    }
 
     return result;
-  }, [profiles, profileFilter, executionOrder]);
+  }, [profiles, profileFilter, profileSearch, executionOrder, execSortField, execSortDir]);
+
+  // Filter and sort for Status table
+  const filteredStatus = useMemo(() => {
+    let result = [...executionStatus];
+    if (statusSearch.trim()) {
+      const q = statusSearch.trim().toLowerCase();
+      result = result.filter((s) => (s.profileName || '').toLowerCase().includes(q));
+    }
+    if (statusSortField) {
+      result.sort((a, b) => {
+        let aVal = a[statusSortField] ?? '';
+        let bVal = b[statusSortField] ?? '';
+        if (typeof aVal === 'boolean') { aVal = aVal ? 1 : 0; bVal = bVal ? 1 : 0; }
+        if (typeof aVal === 'string') {
+          return statusSortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        }
+        return statusSortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      });
+    }
+    return result;
+  }, [executionStatus, statusSearch, statusSortField, statusSortDir]);
 
   const activeProfilesInFilter = filteredProfiles.filter(p => p.isActive);
+
+  const handleExecSort = (field) => {
+    if (execSortField === field) {
+      setExecSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setExecSortField(field);
+      setExecSortDir('asc');
+    }
+  };
+
+  const handleStatusSort = (field) => {
+    if (statusSortField === field) {
+      setStatusSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setStatusSortField(field);
+      setStatusSortDir('asc');
+    }
+  };
+
+  const SortableTh = ({ field, sortF, sortD, onSort, children }) => (
+    <Th onClick={() => onSort(field)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+      <Flex alignItems="center" gap={1}>
+        <Typography variant="sigma">{children}</Typography>
+        {sortF === field && (sortD === 'asc' ? <CaretUp /> : <CaretDown />)}
+      </Flex>
+    </Th>
+  );
 
   if (loading) return <Typography>Loading…</Typography>;
 
@@ -462,6 +554,9 @@ const SyncTab = () => {
                   )}
                   <Button onClick={handleSyncAll} loading={syncing} disabled={syncing}>
                     {syncing ? 'Syncing…' : 'Sync All Active'}
+                  </Button>
+                  <Button variant="tertiary" onClick={loadData} disabled={loading}>
+                    Refresh
                   </Button>
                 </Flex>
               </Flex>
@@ -508,21 +603,31 @@ const SyncTab = () => {
 
               <Box paddingTop={4}>
                 {/* Filter and Order Controls */}
-                <Flex justifyContent="space-between" alignItems="center" marginBottom={4}>
-                  <Flex gap={4} alignItems="center">
+                <Flex justifyContent="space-between" alignItems="flex-end" marginBottom={4} wrap="wrap" gap={3}>
+                  <Flex gap={3} alignItems="flex-end" wrap="wrap">
                     <Typography variant="delta">Profiles</Typography>
-                    <SingleSelect
-                      value={profileFilter}
-                      onChange={setProfileFilter}
-                      size="S"
-                      style={{ width: 180 }}
-                    >
-                      {FILTER_OPTIONS.map(opt => (
-                        <SingleSelectOption key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SingleSelectOption>
-                      ))}
-                    </SingleSelect>
+                    <Box style={{ minWidth: 160 }}>
+                      <SingleSelect
+                        value={profileFilter}
+                        onChange={setProfileFilter}
+                        size="S"
+                      >
+                        {FILTER_OPTIONS.map(opt => (
+                          <SingleSelectOption key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SingleSelectOption>
+                        ))}
+                      </SingleSelect>
+                    </Box>
+                    <Box style={{ minWidth: 200 }}>
+                      <TextInput
+                        placeholder="Search by name or type…"
+                        value={profileSearch}
+                        onChange={(e) => setProfileSearch(e.target.value)}
+                        size="S"
+                        label=""
+                      />
+                    </Box>
                   </Flex>
                   <Flex gap={2}>
                     {orderModified && (
@@ -544,8 +649,10 @@ const SyncTab = () => {
                   <Box padding={4} background="neutral0" hasRadius>
                     <Typography textColor="neutral600">
                       {profileFilter === 'active' 
-                        ? 'No active profiles. Activate a profile in the Sync Profiles tab first.'
-                        : 'No profiles found. Create a profile in the Sync Profiles tab.'}
+                        ? 'No active profiles match the search. Activate a profile in the Sync Profiles tab first.'
+                        : profileSearch
+                          ? 'No profiles match the search.'
+                          : 'No profiles found. Create a profile in the Sync Profiles tab.'}
                     </Typography>
                   </Box>
                 ) : (
@@ -561,10 +668,10 @@ const SyncTab = () => {
                           />
                         </Th>
                         <Th style={{ width: 80 }}><Typography variant="sigma">Order</Typography></Th>
-                        <Th><Typography variant="sigma">Profile</Typography></Th>
-                        <Th><Typography variant="sigma">Content Type</Typography></Th>
+                        <SortableTh field="name" sortF={execSortField} sortD={execSortDir} onSort={handleExecSort}>Profile</SortableTh>
+                        <SortableTh field="contentType" sortF={execSortField} sortD={execSortDir} onSort={handleExecSort}>Content Type</SortableTh>
                         <Th><Typography variant="sigma">Dependencies</Typography></Th>
-                        <Th><Typography variant="sigma">Status</Typography></Th>
+                        <SortableTh field="isActive" sortF={execSortField} sortD={execSortDir} onSort={handleExecSort}>Status</SortableTh>
                         <Th><Typography variant="sigma">Execution Mode</Typography></Th>
                         <Th><Typography variant="sigma">Actions</Typography></Th>
                       </Tr>
@@ -614,7 +721,7 @@ const SyncTab = () => {
                                 <TextInput 
                                   value={order}
                                   onChange={(e) => handleOrderChange(profile.id, e.target.value)}
-                                  style={{ width: 50, textAlign: 'center' }}
+                                  style={{ width: 80, textAlign: 'center' }}
                                   size="S"
                                   type="number"
                                   min={1}
@@ -719,20 +826,39 @@ const SyncTab = () => {
                 Monitor scheduled and live sync jobs.
               </Typography>
 
-              <Box paddingTop={4}>
+              <Box paddingTop={4} paddingBottom={3}>
+                <TextInput
+                  placeholder="Search by profile name…"
+                  value={statusSearch}
+                  onChange={(e) => setStatusSearch(e.target.value)}
+                  label="Search"
+                  size="S"
+                  style={{ maxWidth: 280 }}
+                />
+              </Box>
+
+              <Box paddingTop={2}>
                 <Table>
                   <Thead>
                     <Tr>
-                      <Th><Typography variant="sigma">Profile</Typography></Th>
-                      <Th><Typography variant="sigma">Mode</Typography></Th>
-                      <Th><Typography variant="sigma">Enabled</Typography></Th>
-                      <Th><Typography variant="sigma">Last Run</Typography></Th>
+                      <SortableTh field="profileName" sortF={statusSortField} sortD={statusSortDir} onSort={handleStatusSort}>Profile</SortableTh>
+                      <SortableTh field="executionMode" sortF={statusSortField} sortD={statusSortDir} onSort={handleStatusSort}>Mode</SortableTh>
+                      <SortableTh field="enabled" sortF={statusSortField} sortD={statusSortDir} onSort={handleStatusSort}>Enabled</SortableTh>
+                      <SortableTh field="lastExecutedAt" sortF={statusSortField} sortD={statusSortDir} onSort={handleStatusSort}>Last Run</SortableTh>
                       <Th><Typography variant="sigma">Next Run</Typography></Th>
                       <Th><Typography variant="sigma">Status</Typography></Th>
                     </Tr>
                   </Thead>
                   <Tbody>
-                    {executionStatus.map((status) => (
+                    {filteredStatus.length === 0 ? (
+                      <Tr>
+                        <Td colSpan={6}>
+                          <Typography textColor="neutral500">
+                            {statusSearch ? 'No profiles match the search.' : 'No execution status found.'}
+                          </Typography>
+                        </Td>
+                      </Tr>
+                    ) : filteredStatus.map((status) => (
                       <Tr key={status.profileId}>
                         <Td>
                           <Typography fontWeight="bold">{status.profileName}</Typography>

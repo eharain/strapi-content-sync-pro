@@ -140,6 +140,49 @@ module.exports = ({ strapi }) => {
     return out;
   }
 
+  function orderByDependencies(uids) {
+    const depResolver = plugin().service('dependencyResolver');
+    const uidSet = new Set(uids);
+    const inDegree = new Map();
+    const adjacency = new Map();
+
+    uids.forEach((uid) => {
+      inDegree.set(uid, 0);
+      adjacency.set(uid, []);
+    });
+
+    for (const uid of uids) {
+      try {
+        const rels = depResolver.analyzeContentType(uid)?.relations || [];
+        for (const rel of rels) {
+          const depUid = rel.target;
+          if (!uidSet.has(depUid) || depUid === uid) continue;
+          adjacency.get(depUid).push(uid);
+          inDegree.set(uid, (inDegree.get(uid) || 0) + 1);
+        }
+      } catch (_) {
+        // Ignore bad schema and keep fallback order.
+      }
+    }
+
+    const queue = uids.filter((uid) => (inDegree.get(uid) || 0) === 0);
+    const ordered = [];
+    while (queue.length > 0) {
+      const uid = queue.shift();
+      ordered.push(uid);
+      for (const next of adjacency.get(uid) || []) {
+        const deg = (inDegree.get(next) || 0) - 1;
+        inDegree.set(next, deg);
+        if (deg === 0) queue.push(next);
+      }
+    }
+
+    for (const uid of uids) {
+      if (!ordered.includes(uid)) ordered.push(uid);
+    }
+    return ordered;
+  }
+
   function listMediaProfilesToRun() {
     // Use the media service's own active-profile semantics by delegating
     // to runActiveProfiles at execute time; here we just need chunk labels.
@@ -153,7 +196,8 @@ module.exports = ({ strapi }) => {
     const chunks = [];
 
     if (scopes.content) {
-      for (const uid of listSyncableContentTypeUids()) {
+      const orderedContentTypes = orderByDependencies(listSyncableContentTypeUids());
+      for (const uid of orderedContentTypes) {
         chunks.push({ kind: 'content', uid, label: uid });
       }
     }

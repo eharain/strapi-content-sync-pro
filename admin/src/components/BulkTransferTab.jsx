@@ -8,6 +8,7 @@ import {
   Checkbox,
   SingleSelect,
   SingleSelectOption,
+  TextInput,
   Field,
   Table,
   Thead,
@@ -18,6 +19,7 @@ import {
   Badge,
   Loader,
 } from '@strapi/design-system';
+import { CaretUp, CaretDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
 const PLUGIN_ID = 'strapi-content-sync-pro';
@@ -65,6 +67,18 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
   // Internal sub-tab: 'run' shows the configuration + active job,
   // 'history' shows the persisted previous-runs table.
   const [subTab, setSubTab] = useState('run');
+
+  // Chunk table filters + sort
+  const [chunkSearch, setChunkSearch] = useState('');
+  const [chunkKindFilter, setChunkKindFilter] = useState('');
+  const [chunkStatusFilter, setChunkStatusFilter] = useState('');
+  const [chunkSortField, setChunkSortField] = useState('');
+  const [chunkSortDir, setChunkSortDir] = useState('asc');
+
+  // History table filters + sort
+  const [historySearch, setHistorySearch] = useState('');
+  const [historySortField, setHistorySortField] = useState('');
+  const [historySortDir, setHistorySortDir] = useState('asc');
 
   const pollRef = useRef(null);
 
@@ -354,6 +368,77 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
   const isActive = isRunning || isPaused;
   const isTerminal = job && ['success', 'partial', 'cancelled', 'error'].includes(job.status);
 
+  // Derived chunk list (filter + sort)
+  const displayedChunks = useMemo(() => {
+    let result = [...chunkRows];
+    if (chunkSearch.trim()) {
+      const q = chunkSearch.trim().toLowerCase();
+      result = result.filter(
+        (c) => (c.label || '').toLowerCase().includes(q) || (c.kind || '').toLowerCase().includes(q)
+      );
+    }
+    if (chunkKindFilter) {
+      result = result.filter((c) => (c.kind || '') === chunkKindFilter);
+    }
+    if (chunkStatusFilter) {
+      result = result.filter((c) => (c.status || '') === chunkStatusFilter);
+    }
+    if (chunkSortField) {
+      result.sort((a, b) => {
+        const aVal = a[chunkSortField] ?? '';
+        const bVal = b[chunkSortField] ?? '';
+        if (typeof aVal === 'string') {
+          return chunkSortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        }
+        return chunkSortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      });
+    }
+    return result;
+  }, [chunkRows, chunkSearch, chunkKindFilter, chunkStatusFilter, chunkSortField, chunkSortDir]);
+
+  // Derived history list (filter + sort)
+  const displayedHistory = useMemo(() => {
+    let result = [...history];
+    if (historySearch.trim()) {
+      const q = historySearch.trim().toLowerCase();
+      result = result.filter((h) => (h.direction || '').toLowerCase().includes(q) || (h.status || '').toLowerCase().includes(q));
+    }
+    if (historySortField) {
+      result.sort((a, b) => {
+        const aVal = a[historySortField] ?? '';
+        const bVal = b[historySortField] ?? '';
+        if (typeof aVal === 'string') {
+          return historySortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        }
+        return historySortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      });
+    }
+    return result;
+  }, [history, historySearch, historySortField, historySortDir]);
+
+  const handleChunkSort = (field) => {
+    if (chunkSortField === field) setChunkSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setChunkSortField(field); setChunkSortDir('asc'); }
+  };
+
+  const handleHistorySort = (field) => {
+    if (historySortField === field) setHistorySortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setHistorySortField(field); setHistorySortDir('asc'); }
+  };
+
+  const SortableTh = ({ field, onSort, sortF, sortD, style, children }) => (
+    <Th onClick={() => onSort(field)} style={{ cursor: 'pointer', userSelect: 'none', ...style }}>
+      <Flex alignItems="center" gap={1}>
+        <Typography variant="sigma">{children}</Typography>
+        {sortF === field && (sortD === 'asc' ? <CaretUp /> : <CaretDown />)}
+      </Flex>
+    </Th>
+  );
+
+  // Chunk kind options from current rows
+  const chunkKindOptions = useMemo(() => [...new Set(chunkRows.map((c) => c.kind).filter(Boolean))], [chunkRows]);
+  const chunkStatusOptions = useMemo(() => [...new Set(chunkRows.map((c) => c.status).filter(Boolean))], [chunkRows]);
+
   const jobStats = useMemo(() => {
     if (!job) return null;
     const totals = (job.chunks || []).reduce(
@@ -605,6 +690,56 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
             {job ? `Chunks (${job.cursor}/${job.total})` : `Planned Chunks (${preview?.total || chunkRows.length})`}
           </Typography>
           <Box paddingTop={2}>
+            {/* Chunk filter bar */}
+            <Flex gap={2} wrap="wrap" marginBottom={2} alignItems="flex-end">
+              <Box style={{ flex: '1 1 180px', minWidth: 150 }}>
+                <TextInput
+                  placeholder="Search target or kind…"
+                  value={chunkSearch}
+                  onChange={(e) => setChunkSearch(e.target.value)}
+                  label="Search"
+                  size="S"
+                />
+              </Box>
+              {chunkKindOptions.length > 1 && (
+                <Box style={{ minWidth: 130 }}>
+                  <SingleSelect
+                    placeholder="All kinds"
+                    value={chunkKindFilter}
+                    onChange={setChunkKindFilter}
+                    onClear={() => setChunkKindFilter('')}
+                    size="S"
+                    label="Kind"
+                  >
+                    {chunkKindOptions.map((k) => (
+                      <SingleSelectOption key={k} value={k}>{k}</SingleSelectOption>
+                    ))}
+                  </SingleSelect>
+                </Box>
+              )}
+              {job && chunkStatusOptions.length > 1 && (
+                <Box style={{ minWidth: 130 }}>
+                  <SingleSelect
+                    placeholder="All statuses"
+                    value={chunkStatusFilter}
+                    onChange={setChunkStatusFilter}
+                    onClear={() => setChunkStatusFilter('')}
+                    size="S"
+                    label="Status"
+                  >
+                    {chunkStatusOptions.map((s) => (
+                      <SingleSelectOption key={s} value={s}>{s}</SingleSelectOption>
+                    ))}
+                  </SingleSelect>
+                </Box>
+              )}
+              {(chunkSearch || chunkKindFilter || chunkStatusFilter) && (
+                <Button variant="tertiary" size="S" onClick={() => { setChunkSearch(''); setChunkKindFilter(''); setChunkStatusFilter(''); }}>
+                  Clear
+                </Button>
+              )}
+            </Flex>
+
             <Table>
               <Thead>
                 <Tr>
@@ -618,17 +753,23 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
                       <Typography variant="sigma">Run</Typography>
                     )}
                   </Th>
-                  <Th style={{ width: 60 }}><Typography variant="sigma">#</Typography></Th>
-                  <Th><Typography variant="sigma">Kind</Typography></Th>
-                  <Th><Typography variant="sigma">Target</Typography></Th>
-                  <Th><Typography variant="sigma">Status</Typography></Th>
+                  <SortableTh field="index" onSort={handleChunkSort} sortF={chunkSortField} sortD={chunkSortDir} style={{ width: 60 }}>#</SortableTh>
+                  <SortableTh field="kind" onSort={handleChunkSort} sortF={chunkSortField} sortD={chunkSortDir}>Kind</SortableTh>
+                  <SortableTh field="label" onSort={handleChunkSort} sortF={chunkSortField} sortD={chunkSortDir}>Target</SortableTh>
+                  <SortableTh field="status" onSort={handleChunkSort} sortF={chunkSortField} sortD={chunkSortDir}>Status</SortableTh>
                   <Th><Typography variant="sigma">Page</Typography></Th>
                   <Th><Typography variant="sigma">Pushed / Pulled</Typography></Th>
                   <Th><Typography variant="sigma">Notes</Typography></Th>
                 </Tr>
               </Thead>
               <Tbody>
-                {chunkRows.map((c) => {
+                {displayedChunks.length === 0 ? (
+                  <Tr>
+                    <Td colSpan={8}>
+                      <Typography textColor="neutral500">No chunks match the current filters.</Typography>
+                    </Td>
+                  </Tr>
+                ) : displayedChunks.map((c) => {
                   const pageLabel = c.pagesTotal
                     ? `${c.page || 0}/${c.pagesTotal}`
                     : c.page
@@ -666,17 +807,17 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
                       <Td><Typography variant="pi">{pageLabel}</Typography></Td>
                       <Td><Typography variant="pi">{pushPullLabel}</Typography></Td>
                       <Td>
-                        {c.error && <Typography textColor="danger600" variant="pi">{c.error}</Typography>}
-                        {!c.error && c.warning && <Typography textColor="warning600" variant="pi">{c.warning}</Typography>}
-                      </Td>
-                    </Tr>
-                  );
-                })}
-              </Tbody>
-            </Table>
-          </Box>
-        </Box>
-      )}
+                                        {c.error && <Typography textColor="danger600" variant="pi">{c.error}</Typography>}
+                                          {!c.error && c.warning && <Typography textColor="warning600" variant="pi">{c.warning}</Typography>}
+                                        </Td>
+                                      </Tr>
+                                    );
+                                  })}
+                                </Tbody>
+                              </Table>
+                            </Box>
+                          </Box>
+                        )}
 
       {job && job.status && job.status !== 'running' && (
         <Box paddingTop={4}>
@@ -707,6 +848,24 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
           Paused, cancelled, and completed runs are preserved here. Restart a run from scratch
           using the same chunk selection, or load its selection into the Run Transfer tab to tweak.
         </Typography>
+
+        {history.length > 0 && (
+          <Flex gap={2} wrap="wrap" marginTop={3} marginBottom={2} alignItems="flex-end">
+            <Box style={{ flex: '1 1 180px', minWidth: 150 }}>
+              <TextInput
+                placeholder="Search direction or status…"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+                label="Search"
+                size="S"
+              />
+            </Box>
+            {historySearch && (
+              <Button variant="tertiary" size="S" onClick={() => setHistorySearch('')}>Clear</Button>
+            )}
+          </Flex>
+        )}
+
         <Box paddingTop={2}>
           {history.length === 0 ? (
             <Typography variant="pi" textColor="neutral500">No previous runs yet.</Typography>
@@ -714,15 +873,21 @@ const BulkTransferTab = ({ syncMode = 'paired' }) => {
             <Table>
               <Thead>
                 <Tr>
-                  <Th><Typography variant="sigma">When</Typography></Th>
-                  <Th><Typography variant="sigma">Direction</Typography></Th>
-                  <Th><Typography variant="sigma">Status</Typography></Th>
+                  <SortableTh field="startedAt" onSort={handleHistorySort} sortF={historySortField} sortD={historySortDir}>When</SortableTh>
+                  <SortableTh field="direction" onSort={handleHistorySort} sortF={historySortField} sortD={historySortDir}>Direction</SortableTh>
+                  <SortableTh field="status" onSort={handleHistorySort} sortF={historySortField} sortD={historySortDir}>Status</SortableTh>
                   <Th><Typography variant="sigma">Chunks</Typography></Th>
                   <Th><Typography variant="sigma">Actions</Typography></Th>
                 </Tr>
               </Thead>
               <Tbody>
-                {history.map((h) => {
+                {displayedHistory.length === 0 ? (
+                  <Tr>
+                    <Td colSpan={5}>
+                      <Typography textColor="neutral500">No runs match the search.</Typography>
+                    </Td>
+                  </Tr>
+                ) : displayedHistory.map((h) => {
                   const selCount = (h.chunks || []).filter((c) => c.selected !== false).length;
                   const doneCount = (h.chunks || []).filter(
                     (c) => c.status === 'success' || c.status === 'partial'
