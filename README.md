@@ -14,7 +14,7 @@ A powerful Strapi v5 plugin to copy, migrate, and live-sync content, media, and 
 Plugin intro: https://youtu.be/hr3dD6dLgLQ
 
 <a href="https://youtu.be/hr3dD6dLgLQ" target="_blank" rel="noopener noreferrer">
-  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro — watch the intro video" width="100%" />
+  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20122937.png" alt="Content Sync Pro — watch the intro video" width="100%" />
 </a>
 
 ## Screenshots
@@ -26,24 +26,39 @@ Plugin intro: https://youtu.be/hr3dD6dLgLQ
 
   <table>
     <tr>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20160506.png" alt="Content Sync Pro - screenshot 1" width="100%" /></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20160558.png" alt="Content Sync Pro - screenshot 2" width="100%" /></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20175903.png" alt="Content Sync Pro - screenshot 3" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20114332.png" alt="Content Sync Pro - screenshot 1" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20114644.png" alt="Content Sync Pro - screenshot 2" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20114651.png" alt="Content Sync Pro - screenshot 3" width="100%" /></td>
     </tr>
     <tr>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20175931.png" alt="Content Sync Pro - screenshot 4" width="100%" /></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180001.png" alt="Content Sync Pro - screenshot 5" width="100%" /></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180041.png" alt="Content Sync Pro - screenshot 6" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20114737.png" alt="Content Sync Pro - screenshot 4" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20114904.png" alt="Content Sync Pro - screenshot 5" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20114940.png" alt="Content Sync Pro - screenshot 6" width="100%" /></td>
     </tr>
     <tr>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180116.png" alt="Content Sync Pro - screenshot 7" width="100%" /></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180135.png" alt="Content Sync Pro - screenshot 8" width="100%" /></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180202.png" alt="Content Sync Pro - screenshot 9" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20115003.png" alt="Content Sync Pro - screenshot 7" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20115024.png" alt="Content Sync Pro - screenshot 8" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20115116.png" alt="Content Sync Pro - screenshot 9" width="100%" /></td>
     </tr>
     <tr>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180228.png" alt="Content Sync Pro - screenshot 10" width="100%" /></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180251.png" alt="Content Sync Pro - screenshot 11" width="100%" /></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-20%20180301.png" alt="Content Sync Pro - screenshot 12" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20115141.png" alt="Content Sync Pro - screenshot 10" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20115252.png" alt="Content Sync Pro - screenshot 11" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20115448.png" alt="Content Sync Pro - screenshot 12" width="100%" /></td>
+    </tr>
+    <tr>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20120534.png" alt="Content Sync Pro - screenshot 13" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20122544.png" alt="Content Sync Pro - screenshot 14" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20122712.png" alt="Content Sync Pro - screenshot 15" width="100%" /></td>
+    </tr>
+    <tr>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20122730.png" alt="Content Sync Pro - screenshot 16" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20122858.png" alt="Content Sync Pro - screenshot 17" width="100%" /></td>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20122924.png" alt="Content Sync Pro - screenshot 18" width="100%" /></td>
+    </tr>
+    <tr>
+      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/Screenshot%202026-04-23%20122937.png" alt="Content Sync Pro - screenshot 19" width="100%" /></td>
+      <td width="33%"></td>
+      <td width="33%"></td>
     </tr>
   </table>
 </details>
@@ -294,7 +309,8 @@ Check the **Logs** tab for detailed sync history including:
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request.
+Contributions are welcome! Please open an issue or submit a pull request. 
+
 
 ## License
 
