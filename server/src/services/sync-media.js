@@ -147,6 +147,64 @@ module.exports = ({ strapi }) => {
   const log = strapi.log;
   const schedulerHandles = {};
 
+  // ── In-memory run controls (pause/resume/cancel) per profile ─────────────
+  // Key: profileId, Value: { signal: 'run' | 'pause' | 'cancel',
+  //                          resumeDeferred: { promise, resolve } | null,
+  //                          progress: { phase, processed, total, pushed, pulled, skipped, errors } }
+  const runControls = {};
+
+  function getControl(profileId) {
+    if (!runControls[profileId]) {
+      runControls[profileId] = {
+        signal: 'run',
+        resumeDeferred: null,
+        progress: { phase: 'idle', processed: 0, total: 0, pushed: 0, pulled: 0, skipped: 0, errors: 0 },
+      };
+    }
+    return runControls[profileId];
+  }
+
+  function makeDeferred() {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+
+  // Cooperative checkpoint — call between units of work. Returns:
+  //   { cancelled: true } if the run should abort, or null to continue.
+  async function checkpoint(profileId) {
+    const c = getControl(profileId);
+    if (c.signal === 'cancel') return { cancelled: true };
+    if (c.signal === 'pause') {
+      if (!c.resumeDeferred) c.resumeDeferred = makeDeferred();
+      // Mirror pause state into persisted status so UI sees it
+      try {
+        const s = await store().get({ key: STATUS_KEY }) || {};
+        s.paused = { ...(s.paused || {}), [profileId]: true };
+        await store().set({ key: STATUS_KEY, value: s });
+      } catch { /* ignore */ }
+      await c.resumeDeferred.promise;
+      c.resumeDeferred = null;
+      try {
+        const s = await store().get({ key: STATUS_KEY }) || {};
+        if (s.paused) { delete s.paused[profileId]; }
+        await store().set({ key: STATUS_KEY, value: s });
+      } catch { /* ignore */ }
+      if (c.signal === 'cancel') return { cancelled: true };
+    }
+    return null;
+  }
+
+  async function updateProgress(profileId, patch) {
+    const c = getControl(profileId);
+    c.progress = { ...c.progress, ...patch };
+    try {
+      const s = await store().get({ key: STATUS_KEY }) || {};
+      s.progress = { ...(s.progress || {}), [profileId]: { ...c.progress } };
+      await store().set({ key: STATUS_KEY, value: s });
+    } catch { /* ignore */ }
+  }
+
   function store() {
     return strapi.store({ type: 'plugin', name: PLUGIN_NAME });
   }
@@ -293,6 +351,9 @@ module.exports = ({ strapi }) => {
         lastExecutedAt: p.lastExecutedAt,
         nextExecutionAt: p.nextExecutionAt,
         running: !!(s && s.runningProfiles && s.runningProfiles[p.id]),
+        paused: !!(s && s.paused && s.paused[p.id]),
+        signal: runControls[p.id]?.signal || 'idle',
+        progress: (s && s.progress && s.progress[p.id]) || null,
       })),
       lastRunAt: s?.lastRunAt || null,
       lastResult: s?.lastResult || null,
@@ -755,13 +816,18 @@ module.exports = ({ strapi }) => {
 
   /**
    * Copy a page of files respecting settings.batchConcurrency.
+   * If checkAbort() returns { cancelled: true }, remaining items are skipped.
    */
-  async function processBatch(items, worker, concurrency) {
-    const out = { success: 0, skipped: 0, errors: [] };
+  async function processBatch(items, worker, concurrency, checkAbort) {
+    const out = { success: 0, skipped: 0, errors: [], cancelled: false };
     const c = Math.max(1, Math.min(concurrency || 1, 10));
     let i = 0;
     async function run() {
       while (i < items.length) {
+        if (checkAbort) {
+          const abort = await checkAbort();
+          if (abort && abort.cancelled) { out.cancelled = true; return; }
+        }
         const idx = i++;
         const item = items[idx];
         try {
@@ -785,15 +851,24 @@ module.exports = ({ strapi }) => {
 
     const totals = { pushed: 0, pulled: 0, skipped: 0, dbRowsUpdated: 0, morphLinksApplied: 0, morphLinksSkipped: 0, errors: [] };
     const started = Date.now();
+    const pid = profile.id;
+    const abort = () => checkpoint(pid);
+
+    await updateProgress(pid, { phase: 'indexing-local', processed: 0, total: 0, pushed: 0, pulled: 0, skipped: 0, errors: 0 });
 
     const localIndex = new Map();
     for await (const batch of iterateLocalFiles(settings.pageSize)) {
+      const a = await checkpoint(pid);
+      if (a && a.cancelled) { totals.cancelled = true; break; }
       for (const f of batch) localIndex.set(`${f.hash}|${f.name}`, f);
     }
 
     // PULL: remote -> local
-    if (settings.direction === 'pull' || settings.direction === 'both') {
+    if (!totals.cancelled && (settings.direction === 'pull' || settings.direction === 'both')) {
+      await updateProgress(pid, { phase: 'pull' });
       for await (const remoteBatch of iterateRemoteFiles(remoteConfig, settings.pageSize)) {
+        const a = await checkpoint(pid);
+        if (a && a.cancelled) { totals.cancelled = true; break; }
         const filtered = remoteBatch.filter((f) => passesFilters(f, profile));
         const result = await processBatch(filtered, async (rf) => {
           const key = `${rf.hash}|${rf.name}`;
@@ -813,16 +888,24 @@ module.exports = ({ strapi }) => {
             await uploadBufferToLocal(rf, buf);
           }
           return 'success';
-        }, settings.batchConcurrency);
+        }, settings.batchConcurrency, abort);
         totals.pulled += result.success;
         totals.skipped += result.skipped;
         totals.errors.push(...result.errors);
+        await updateProgress(pid, {
+          pulled: totals.pulled,
+          skipped: totals.skipped,
+          errors: totals.errors.length,
+          processed: totals.pulled + totals.pushed + totals.skipped,
+        });
+        if (result.cancelled) { totals.cancelled = true; break; }
       }
     }
 
-    if (profile.syncDbRows) {
+    if (!totals.cancelled && profile.syncDbRows) {
       try {
         if (settings.direction === 'pull' || settings.direction === 'both') {
+          await updateProgress(pid, { phase: 'pull-morph' });
           const remoteLinks = await fetchRemoteMorphLinks(remoteConfig);
           const applyResult = await applyMorphLinks(remoteLinks);
           totals.morphLinksApplied += applyResult.applied || 0;
@@ -837,42 +920,58 @@ module.exports = ({ strapi }) => {
     }
 
     // PUSH: local -> remote
-    if (settings.direction === 'push' || settings.direction === 'both') {
+    if (!totals.cancelled && (settings.direction === 'push' || settings.direction === 'both')) {
+      await updateProgress(pid, { phase: 'push-indexing-remote' });
       const remoteIndex = new Map();
       for await (const remoteBatch of iterateRemoteFiles(remoteConfig, settings.pageSize)) {
+        const a = await checkpoint(pid);
+        if (a && a.cancelled) { totals.cancelled = true; break; }
         for (const f of remoteBatch) remoteIndex.set(`${f.hash}|${f.name}`, f);
       }
 
-      for await (const localBatch of iterateLocalFiles(settings.pageSize)) {
-        const filtered = localBatch.filter((f) => passesFilters(f, profile));
-        const result = await processBatch(filtered, async (lf) => {
-          const key = `${lf.hash}|${lf.name}`;
-          const rf = remoteIndex.get(key);
+      if (!totals.cancelled) {
+        await updateProgress(pid, { phase: 'push' });
+        for await (const localBatch of iterateLocalFiles(settings.pageSize)) {
+          const a = await checkpoint(pid);
+          if (a && a.cancelled) { totals.cancelled = true; break; }
+          const filtered = localBatch.filter((f) => passesFilters(f, profile));
+          const result = await processBatch(filtered, async (lf) => {
+            const key = `${lf.hash}|${lf.name}`;
+            const rf = remoteIndex.get(key);
 
-          // DB-row sync (push metadata)
-          if (profile.syncDbRows && rf) {
-            const dbResult = await syncDbRowPush(lf, rf, profile, remoteConfig);
-            if (dbResult === 'updated') totals.dbRowsUpdated++;
-          }
+            // DB-row sync (push metadata)
+            if (profile.syncDbRows && rf) {
+              const dbResult = await syncDbRowPush(lf, rf, profile, remoteConfig);
+              if (dbResult === 'updated') totals.dbRowsUpdated++;
+            }
 
-          // File-byte sync
-          if (profile.syncFileBytes) {
-            if (shouldSkip(lf, rf, settings)) return 'skipped';
-            if (settings.dryRun) return 'success';
-            const buf = await readLocalFileBuffer(lf);
-            if (!buf) return 'skipped';
-            await uploadBufferToRemote(remoteConfig, lf, buf);
-          }
-          return 'success';
-        }, settings.batchConcurrency);
-        totals.pushed += result.success;
-        totals.skipped += result.skipped;
-        totals.errors.push(...result.errors);
+            // File-byte sync
+            if (profile.syncFileBytes) {
+              if (shouldSkip(lf, rf, settings)) return 'skipped';
+              if (settings.dryRun) return 'success';
+              const buf = await readLocalFileBuffer(lf);
+              if (!buf) return 'skipped';
+              await uploadBufferToRemote(remoteConfig, lf, buf);
+            }
+            return 'success';
+          }, settings.batchConcurrency, abort);
+          totals.pushed += result.success;
+          totals.skipped += result.skipped;
+          totals.errors.push(...result.errors);
+          await updateProgress(pid, {
+            pushed: totals.pushed,
+            skipped: totals.skipped,
+            errors: totals.errors.length,
+            processed: totals.pulled + totals.pushed + totals.skipped,
+          });
+          if (result.cancelled) { totals.cancelled = true; break; }
+        }
       }
     }
 
-    if (profile.syncDbRows && (settings.direction === 'push' || settings.direction === 'both')) {
+    if (!totals.cancelled && profile.syncDbRows && (settings.direction === 'push' || settings.direction === 'both')) {
       try {
+        await updateProgress(pid, { phase: 'push-morph' });
         const localLinks = await exportMorphLinks();
         const applyRemoteResult = await applyRemoteMorphLinks(remoteConfig, localLinks);
         totals.morphLinksApplied += applyRemoteResult.applied || 0;
@@ -884,6 +983,8 @@ module.exports = ({ strapi }) => {
         totals.errors.push({ name: 'morph_push', error: err.message });
       }
     }
+
+    await updateProgress(pid, { phase: totals.cancelled ? 'cancelled' : 'done' });
 
     const summary = {
       strategy: 'url',
@@ -1041,9 +1142,17 @@ module.exports = ({ strapi }) => {
     const globalSettings = await getGlobalSettings();
     const merged = { ...globalSettings, ...profile, ...options };
 
+    // Reset run controls for a fresh execution
+    const control = getControl(profileId);
+    control.signal = 'run';
+    control.resumeDeferred = null;
+    control.progress = { phase: 'starting', processed: 0, total: 0, pushed: 0, pulled: 0, skipped: 0, errors: 0 };
+
     const statusData = await store().get({ key: STATUS_KEY }) || {};
     statusData.running = true;
     statusData.runningProfiles = { ...(statusData.runningProfiles || {}), [profileId]: true };
+    statusData.progress = { ...(statusData.progress || {}), [profileId]: { ...control.progress } };
+    if (statusData.paused) delete statusData.paused[profileId];
     await setStatus(statusData);
 
     try {
@@ -1059,6 +1168,7 @@ module.exports = ({ strapi }) => {
 
       const s2 = await store().get({ key: STATUS_KEY }) || {};
       delete (s2.runningProfiles || {})[profileId];
+      if (s2.paused) delete s2.paused[profileId];
       s2.running = Object.keys(s2.runningProfiles || {}).length > 0;
       s2.lastRunAt = new Date().toISOString();
       s2.lastResult = result;
@@ -1068,12 +1178,35 @@ module.exports = ({ strapi }) => {
     } catch (err) {
       const s2 = await store().get({ key: STATUS_KEY }) || {};
       delete (s2.runningProfiles || {})[profileId];
+      if (s2.paused) delete s2.paused[profileId];
       s2.running = Object.keys(s2.runningProfiles || {}).length > 0;
       s2.lastRunAt = new Date().toISOString();
       s2.lastResult = { error: err.message };
       await setStatus(s2);
       throw err;
     }
+  }
+
+  async function pauseProfile(profileId) {
+    const c = getControl(profileId);
+    if (c.signal === 'cancel') return { ok: false, message: 'Run is cancelling' };
+    c.signal = 'pause';
+    return { ok: true, signal: c.signal };
+  }
+
+  async function resumeProfile(profileId) {
+    const c = getControl(profileId);
+    if (c.signal !== 'pause') return { ok: false, message: `Run is not paused (signal=${c.signal})` };
+    c.signal = 'run';
+    if (c.resumeDeferred) { c.resumeDeferred.resolve(); }
+    return { ok: true, signal: c.signal };
+  }
+
+  async function cancelProfile(profileId) {
+    const c = getControl(profileId);
+    c.signal = 'cancel';
+    if (c.resumeDeferred) { c.resumeDeferred.resolve(); } // unblock any pause wait
+    return { ok: true, signal: c.signal };
   }
 
   async function runActiveProfiles() {
@@ -1118,6 +1251,9 @@ module.exports = ({ strapi }) => {
     // Execution
     runProfile,
     runActiveProfiles,
+    pauseProfile,
+    resumeProfile,
+    cancelProfile,
 
     // Morph link APIs (documentId-based)
     exportMorphLinks,

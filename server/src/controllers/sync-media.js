@@ -111,6 +111,30 @@ module.exports = ({ strapi }) => ({
     }
   },
 
+  async pauseProfile(ctx) {
+    try {
+      ctx.body = { data: await service(strapi).pauseProfile(ctx.params.id) };
+    } catch (err) {
+      ctx.throw(400, err.message);
+    }
+  },
+
+  async resumeProfile(ctx) {
+    try {
+      ctx.body = { data: await service(strapi).resumeProfile(ctx.params.id) };
+    } catch (err) {
+      ctx.throw(400, err.message);
+    }
+  },
+
+  async cancelProfile(ctx) {
+    try {
+      ctx.body = { data: await service(strapi).cancelProfile(ctx.params.id) };
+    } catch (err) {
+      ctx.throw(400, err.message);
+    }
+  },
+
   // ── Morph link sync (documentId-based mapping) ───────────────────────────
 
   async getMorphLinks(ctx) {
