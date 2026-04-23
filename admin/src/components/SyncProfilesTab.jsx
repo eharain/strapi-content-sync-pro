@@ -64,6 +64,11 @@ const SyncProfilesTab = () => {
   const [sortField, setSortField] = useState('name');
   const [sortDirection, setSortDirection] = useState('asc');
 
+  // Filter state
+  const [filterName, setFilterName] = useState('');
+  const [filterDirection, setFilterDirection] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+
   // Selection state for bulk operations
   const [selectedProfiles, setSelectedProfiles] = useState([]);
 
@@ -86,9 +91,26 @@ const SyncProfilesTab = () => {
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [syncMode, setSyncMode] = useState('paired');
 
-  // Sorted profiles
+  // Sorted + filtered profiles
   const sortedProfiles = useMemo(() => {
-    const sorted = [...profiles].sort((a, b) => {
+    let filtered = [...profiles];
+
+    if (filterName.trim()) {
+      const q = filterName.trim().toLowerCase();
+      filtered = filtered.filter(
+        (p) => p.name.toLowerCase().includes(q) || p.contentType.toLowerCase().includes(q)
+      );
+    }
+    if (filterDirection) {
+      filtered = filtered.filter((p) => p.direction === filterDirection);
+    }
+    if (filterStatus) {
+      filtered = filtered.filter((p) =>
+        filterStatus === 'active' ? p.isActive : !p.isActive
+      );
+    }
+
+    filtered.sort((a, b) => {
       let aVal = a[sortField];
       let bVal = b[sortField];
 
@@ -113,8 +135,8 @@ const SyncProfilesTab = () => {
       }
       return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
     });
-    return sorted;
-  }, [profiles, sortField, sortDirection, contentTypes]);
+    return filtered;
+  }, [profiles, sortField, sortDirection, contentTypes, filterName, filterDirection, filterStatus]);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -402,6 +424,16 @@ const SyncProfilesTab = () => {
     }
   };
 
+  const handleDeactivate = async (profile) => {
+    try {
+      await put(`/${PLUGIN_ID}/sync-profiles/${profile.id}`, { isActive: false });
+      setMessage({ type: 'success', text: `Deactivated: ${profile.name}` });
+      loadData();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to deactivate profile' });
+    }
+  };
+
   const getContentTypeName = (uid) => {
     const ct = contentTypes.find((c) => c.uid === uid);
     return ct?.displayName || uid;
@@ -472,12 +504,65 @@ const SyncProfilesTab = () => {
       )}
 
       <Box paddingTop={4}>
+        {/* Filter Bar */}
+        <Flex gap={3} wrap="wrap" marginBottom={4} alignItems="flex-end">
+          <Box style={{ flex: '1 1 200px', minWidth: 160 }}>
+            <TextInput
+              placeholder="Search by name or type…"
+              value={filterName}
+              onChange={(e) => setFilterName(e.target.value)}
+              label="Search"
+              size="S"
+            />
+          </Box>
+          <Box style={{ minWidth: 160 }}>
+            <SingleSelect
+              placeholder="All directions"
+              value={filterDirection}
+              onChange={setFilterDirection}
+              onClear={() => setFilterDirection('')}
+              size="S"
+              label="Direction"
+            >
+              <SingleSelectOption value="push">Push Only</SingleSelectOption>
+              <SingleSelectOption value="pull">Pull Only</SingleSelectOption>
+              <SingleSelectOption value="both">Bidirectional</SingleSelectOption>
+            </SingleSelect>
+          </Box>
+          <Box style={{ minWidth: 140 }}>
+            <SingleSelect
+              placeholder="All statuses"
+              value={filterStatus}
+              onChange={setFilterStatus}
+              onClear={() => setFilterStatus('')}
+              size="S"
+              label="Status"
+            >
+              <SingleSelectOption value="active">Active</SingleSelectOption>
+              <SingleSelectOption value="inactive">Inactive</SingleSelectOption>
+            </SingleSelect>
+          </Box>
+          {(filterName || filterDirection || filterStatus) && (
+            <Button
+              variant="tertiary"
+              size="S"
+              onClick={() => { setFilterName(''); setFilterDirection(''); setFilterStatus(''); }}
+            >
+              Clear filters
+            </Button>
+          )}
+        </Flex>
+
         {profiles.length === 0 ? (
           <Box padding={6} background="neutral0" hasRadius>
             <Typography textColor="neutral600">
               No sync profiles found. Enable content types in the Content Types tab to auto-generate profiles, 
               or create a custom profile.
             </Typography>
+          </Box>
+        ) : sortedProfiles.length === 0 ? (
+          <Box padding={6} background="neutral0" hasRadius>
+            <Typography textColor="neutral600">No profiles match the current filters.</Typography>
           </Box>
         ) : (
           <Table>
@@ -533,6 +618,23 @@ const SyncProfilesTab = () => {
                   </Td>
                   <Td>
                     <Flex gap={1}>
+                      {profile.isActive ? (
+                        <Button
+                          variant="tertiary"
+                          size="S"
+                          onClick={() => handleDeactivate(profile)}
+                        >
+                          Deactivate
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="success"
+                          size="S"
+                          onClick={() => handleActivate(profile)}
+                        >
+                          Activate
+                        </Button>
+                      )}
                       <IconButton label="Edit" onClick={() => openEditModal(profile)}>
                         <Pencil />
                       </IconButton>

@@ -12,6 +12,8 @@ async function fetchLocalPage(strapi, uid, { fields, lastSyncAt, page = 1, pageS
     start: (page - 1) * size,
     limit: size,
     sort: 'updatedAt:asc',
+    // Include relations/components so dependency links can be compared/synced.
+    populate: '*',
   };
 
   if (lastSyncAt) {
@@ -42,6 +44,11 @@ async function fetchRemotePage(remoteConfig, uid, { fields, lastSyncAt, page = 1
       url.searchParams.set(`fields[${i}]`, f);
     });
   }
+
+  // Include relations/components so dependency links can be compared/synced.
+  // Keep field filters above for scalar fields; Strapi still returns populated
+  // relation/component payloads when `populate=*` is set.
+  url.searchParams.set('populate', '*');
 
   if (lastSyncAt) {
     url.searchParams.set('filters[updatedAt][$gt]', lastSyncAt);

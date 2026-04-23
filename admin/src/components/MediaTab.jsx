@@ -19,7 +19,7 @@ import {
   Dialog,
   IconButton,
 } from '@strapi/design-system';
-import { Pencil, Trash, Play, Check, Stop } from '@strapi/icons';
+import { Pencil, Trash, Play, Check, Stop, CaretUp, CaretDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
 const PLUGIN_ID = 'strapi-content-sync-pro';
@@ -102,6 +102,13 @@ const MediaTab = () => {
   // Edit modal state
   const [editProfile, setEditProfile] = useState(null);
   const [editMode, setEditMode] = useState(null); // 'create' | 'edit'
+
+  // Profile list filter + sort
+  const [profileSearch, setProfileSearch] = useState('');
+  const [profileStrategyFilter, setProfileStrategyFilter] = useState('');
+  const [profileDirectionFilter, setProfileDirectionFilter] = useState('');
+  const [profileSortField, setProfileSortField] = useState('name');
+  const [profileSortDir, setProfileSortDir] = useState('asc');
 
   const reload = async () => {
     try {
@@ -275,6 +282,51 @@ const MediaTab = () => {
   const ep = editProfile || {};
   const updateEp = (patch) => setEditProfile((p) => ({ ...p, ...patch }));
 
+  const handleProfileSort = (field) => {
+    if (profileSortField === field) {
+      setProfileSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setProfileSortField(field);
+      setProfileSortDir('asc');
+    }
+  };
+
+  const displayedProfiles = (() => {
+    let result = [...profiles];
+    if (profileSearch.trim()) {
+      const q = profileSearch.trim().toLowerCase();
+      result = result.filter((p) => (p.name || '').toLowerCase().includes(q));
+    }
+    if (profileStrategyFilter) {
+      result = result.filter((p) => p.strategy === profileStrategyFilter);
+    }
+    if (profileDirectionFilter) {
+      result = result.filter((p) => p.direction === profileDirectionFilter);
+    }
+    result.sort((a, b) => {
+      let aVal = a[profileSortField] ?? '';
+      let bVal = b[profileSortField] ?? '';
+      if (typeof aVal === 'boolean') { aVal = aVal ? 1 : 0; bVal = bVal ? 1 : 0; }
+      if (typeof aVal === 'string') {
+        return profileSortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      return profileSortDir === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+    return result;
+  })();
+
+  const SortableCol = ({ field, style, children }) => (
+    <Box
+      style={{ ...style, cursor: 'pointer', userSelect: 'none' }}
+      onClick={() => handleProfileSort(field)}
+    >
+      <Flex alignItems="center" gap={1}>
+        <Typography variant="sigma">{children}</Typography>
+        {profileSortField === field && (profileSortDir === 'asc' ? <CaretUp /> : <CaretDown />)}
+      </Flex>
+    </Box>
+  );
+
   return (
     <Box padding={4}>
       <Box paddingBottom={4}>
@@ -317,17 +369,71 @@ const MediaTab = () => {
               </Box>
             ) : (
               <Box>
+                {/* Filter bar */}
+                <Flex gap={3} wrap="wrap" marginBottom={3} alignItems="flex-end">
+                  <Box style={{ flex: '1 1 180px', minWidth: 160 }}>
+                    <TextInput
+                      placeholder="Search by name…"
+                      value={profileSearch}
+                      onChange={(e) => setProfileSearch(e.target.value)}
+                      label="Search"
+                      size="S"
+                    />
+                  </Box>
+                  <Box style={{ minWidth: 160 }}>
+                    <SingleSelect
+                      placeholder="All strategies"
+                      value={profileStrategyFilter}
+                      onChange={setProfileStrategyFilter}
+                      onClear={() => setProfileStrategyFilter('')}
+                      size="S"
+                      label="Strategy"
+                    >
+                      <SingleSelectOption value="url">URL</SingleSelectOption>
+                      <SingleSelectOption value="rsync">rsync</SingleSelectOption>
+                      <SingleSelectOption value="disabled">Disabled</SingleSelectOption>
+                    </SingleSelect>
+                  </Box>
+                  <Box style={{ minWidth: 160 }}>
+                    <SingleSelect
+                      placeholder="All directions"
+                      value={profileDirectionFilter}
+                      onChange={setProfileDirectionFilter}
+                      onClear={() => setProfileDirectionFilter('')}
+                      size="S"
+                      label="Direction"
+                    >
+                      <SingleSelectOption value="push">Push</SingleSelectOption>
+                      <SingleSelectOption value="pull">Pull</SingleSelectOption>
+                      <SingleSelectOption value="both">Both</SingleSelectOption>
+                    </SingleSelect>
+                  </Box>
+                  {(profileSearch || profileStrategyFilter || profileDirectionFilter) && (
+                    <Button
+                      variant="tertiary"
+                      size="S"
+                      onClick={() => { setProfileSearch(''); setProfileStrategyFilter(''); setProfileDirectionFilter(''); }}
+                    >
+                      Clear filters
+                    </Button>
+                  )}
+                </Flex>
+
                 {/* Header */}
                 <Flex background="neutral100" padding={3} hasRadius style={{ fontWeight: 600 }}>
-                  <Box style={{ flex: 2 }}><Typography variant="sigma">Name</Typography></Box>
-                  <Box style={{ flex: 1 }}><Typography variant="sigma">Strategy</Typography></Box>
-                  <Box style={{ flex: 1 }}><Typography variant="sigma">Direction</Typography></Box>
-                  <Box style={{ flex: 1 }}><Typography variant="sigma">Conflict</Typography></Box>
-                  <Box style={{ flex: 1 }}><Typography variant="sigma">Execution</Typography></Box>
+                  <SortableCol field="name" style={{ flex: 2 }}>Name</SortableCol>
+                  <SortableCol field="strategy" style={{ flex: 1 }}>Strategy</SortableCol>
+                  <SortableCol field="direction" style={{ flex: 1 }}>Direction</SortableCol>
+                  <SortableCol field="conflictStrategy" style={{ flex: 1 }}>Conflict</SortableCol>
+                  <SortableCol field="executionMode" style={{ flex: 1 }}>Execution</SortableCol>
                   <Box style={{ flex: 1 }}><Typography variant="sigma">Sync Scope</Typography></Box>
                   <Box style={{ width: 180 }}><Typography variant="sigma">Actions</Typography></Box>
                 </Flex>
-                {profiles.map((p) => (
+                {displayedProfiles.length === 0 ? (
+                  <Box padding={4}>
+                    <Typography textColor="neutral500">No profiles match the current filters.</Typography>
+                  </Box>
+                ) : displayedProfiles.map((p) => (
                   <Flex key={p.id} padding={3} borderColor="neutral150" style={{ borderBottom: '1px solid #eee' }} alignItems="center">
                     <Box style={{ flex: 2 }}>
                       <Flex gap={2} alignItems="center">

@@ -7,6 +7,7 @@ import {
   Alert,
   Switch,
   Badge,
+  TextInput,
 } from '@strapi/design-system';
 import { useFetchClient } from '@strapi/strapi/admin';
 
@@ -20,6 +21,7 @@ const ContentTypesTab = () => {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     loadData();
@@ -110,8 +112,25 @@ const ContentTypesTab = () => {
         </Box>
       )}
 
+      <Box paddingBottom={4}>
+        <TextInput
+          placeholder="Search by name or UID…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          label="Search"
+          size="S"
+          style={{ maxWidth: 320 }}
+        />
+      </Box>
+
       <Box>
-        {contentTypes.map((ct) => {
+        {contentTypes
+          .filter((ct) => {
+            if (!search.trim()) return true;
+            const q = search.trim().toLowerCase();
+            return (ct.displayName || '').toLowerCase().includes(q) || ct.uid.toLowerCase().includes(q);
+          })
+          .map((ct) => {
           const enabled = isEnabled(ct.uid);
           const activeProfile = getActiveProfile(ct.uid);
           const profileCount = getProfileCount(ct.uid);
@@ -151,6 +170,14 @@ const ContentTypesTab = () => {
             </Box>
           );
         })}
+        {contentTypes.length > 0 && search.trim() && contentTypes.filter((ct) => {
+          const q = search.trim().toLowerCase();
+          return (ct.displayName || '').toLowerCase().includes(q) || ct.uid.toLowerCase().includes(q);
+        }).length === 0 && (
+          <Box padding={4} background="neutral0" hasRadius>
+            <Typography textColor="neutral500">No content types match the search.</Typography>
+          </Box>
+        )}
       </Box>
     </Box>
   );

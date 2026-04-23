@@ -6,6 +6,7 @@ import {
   Button,
   SingleSelect,
   SingleSelectOption,
+  TextInput,
   Table,
   Thead,
   Tbody,
@@ -13,6 +14,7 @@ import {
   Td,
   Th,
 } from '@strapi/design-system';
+import { CaretUp, CaretDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
 const PLUGIN_ID = 'strapi-content-sync-pro';
@@ -24,6 +26,9 @@ const LogsTab = () => {
   const [meta, setMeta] = useState(null);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState('');
+  const [sortDir, setSortDir] = useState('asc');
   const [loading, setLoading] = useState(true);
 
   const fetchLogs = useCallback(async () => {
@@ -46,6 +51,48 @@ const LogsTab = () => {
     fetchLogs();
   }, [fetchLogs]);
 
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
+  const displayedLogs = (() => {
+    let result = [...logs];
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      result = result.filter(
+        (l) =>
+          (l.action || '').toLowerCase().includes(q) ||
+          (l.contentType || '').toLowerCase().includes(q) ||
+          (l.message || '').toLowerCase().includes(q)
+      );
+    }
+    if (sortField) {
+      result.sort((a, b) => {
+        const aVal = a[sortField] ?? '';
+        const bVal = b[sortField] ?? '';
+        if (typeof aVal === 'string') {
+          return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        }
+        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      });
+    }
+    return result;
+  })();
+
+  const SortableTh = ({ field, children }) => (
+    <Th onClick={() => handleSort(field)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+      <Flex alignItems="center" gap={1}>
+        <Typography variant="sigma">{children}</Typography>
+        {sortField === field && (sortDir === 'asc' ? <CaretUp /> : <CaretDown />)}
+      </Flex>
+    </Th>
+  );
+
   return (
     <Box>
       <Flex justifyContent="space-between" alignItems="center">
@@ -65,19 +112,30 @@ const LogsTab = () => {
         </Flex>
       </Flex>
 
-      <Box paddingTop={4}>
+      <Box paddingTop={3} paddingBottom={2}>
+        <TextInput
+          placeholder="Search action, content type, message…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          label="Search"
+          size="S"
+          style={{ maxWidth: 340 }}
+        />
+      </Box>
+
+      <Box paddingTop={2}>
         <Table>
           <Thead>
             <Tr>
-              <Th><Typography variant="sigma">Time</Typography></Th>
-              <Th><Typography variant="sigma">Action</Typography></Th>
-              <Th><Typography variant="sigma">Content Type</Typography></Th>
-              <Th><Typography variant="sigma">Status</Typography></Th>
+              <SortableTh field="createdAt">Time</SortableTh>
+              <SortableTh field="action">Action</SortableTh>
+              <SortableTh field="contentType">Content Type</SortableTh>
+              <SortableTh field="status">Status</SortableTh>
               <Th><Typography variant="sigma">Message</Typography></Th>
             </Tr>
           </Thead>
           <Tbody>
-            {logs.map((log, i) => (
+            {displayedLogs.map((log, i) => (
               <Tr key={log.id || i}>
                 <Td><Typography>{new Date(log.createdAt).toLocaleString()}</Typography></Td>
                 <Td><Typography>{log.action}</Typography></Td>
@@ -96,11 +154,11 @@ const LogsTab = () => {
                 <Td><Typography>{log.message}</Typography></Td>
               </Tr>
             ))}
-            {logs.length === 0 && (
+            {displayedLogs.length === 0 && (
               <Tr>
                 <Td colSpan={5}>
                   <Typography textColor="neutral500">
-                    {loading ? 'Loading…' : 'No logs found'}
+                    {loading ? 'Loading…' : search ? 'No logs match the search.' : 'No logs found'}
                   </Typography>
                 </Td>
               </Tr>
