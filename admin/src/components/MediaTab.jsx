@@ -19,7 +19,7 @@ import {
   Dialog,
   IconButton,
 } from '@strapi/design-system';
-import { Pencil, Trash, Play, Check } from '@strapi/icons';
+import { Pencil, Trash, Play, Check, Stop } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
 
 const PLUGIN_ID = 'strapi-content-sync-pro';
@@ -122,7 +122,24 @@ const MediaTab = () => {
     }
   };
 
+  const refreshStatus = async () => {
+    try {
+      const sRes = await get(`/${PLUGIN_ID}/media-sync/status`);
+      setStatus(sRes.data.data || {});
+    } catch {
+      /* silent — polling should not spam errors */
+    }
+  };
+
   useEffect(() => { reload(); }, []);
+
+  // Live status polling: while anything is running or paused, poll every 2s.
+  useEffect(() => {
+    const anyActive = (status?.profiles || []).some((p) => p.running || p.paused);
+    if (!anyActive) return undefined;
+    const id = setInterval(refreshStatus, 2000);
+    return () => clearInterval(id);
+  }, [status]);
 
   const handleSaveGlobal = async () => {
     setSaving(true); setMessage(null);
@@ -174,25 +191,67 @@ const MediaTab = () => {
   };
 
   const handleRunProfile = async (id) => {
-    setRunning(true); setMessage(null);
-    try {
-      await post(`/${PLUGIN_ID}/media-sync/profiles/${id}/run`, {});
-      setMessage({ type: 'success', text: 'Media sync complete.' });
-      await reload();
-    } catch (err) {
-      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
-    } finally { setRunning(false); }
+    setMessage(null);
+    // Fire-and-forget: don't await — the sync may run for a long time.
+    // Poll status to reflect progress and completion.
+    post(`/${PLUGIN_ID}/media-sync/profiles/${id}/run`, {})
+      .then(() => {
+        setMessage({ type: 'success', text: 'Media sync complete.' });
+        refreshStatus();
+      })
+      .catch((err) => {
+        setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+        refreshStatus();
+      });
+    setMessage({ type: 'success', text: 'Media sync started. You can pause or stop it from the Status tab.' });
+    // Kick an immediate status refresh so the UI flips to Running right away.
+    setTimeout(refreshStatus, 500);
   };
 
   const handleRunAll = async () => {
-    setRunning(true); setMessage(null);
+    setMessage(null);
+    post(`/${PLUGIN_ID}/media-sync/run-active`, {})
+      .then(() => {
+        setMessage({ type: 'success', text: 'All active media profiles synced.' });
+        refreshStatus();
+      })
+      .catch((err) => {
+        setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+        refreshStatus();
+      });
+    setMessage({ type: 'success', text: 'Sync All started. Watch progress in the Status tab.' });
+    setTimeout(refreshStatus, 500);
+  };
+
+  const handlePauseProfile = async (id) => {
     try {
-      await post(`/${PLUGIN_ID}/media-sync/run-active`, {});
-      setMessage({ type: 'success', text: 'All active media profiles synced.' });
-      await reload();
+      await post(`/${PLUGIN_ID}/media-sync/profiles/${id}/pause`, {});
+      setMessage({ type: 'success', text: 'Pause requested. The run will halt at the next checkpoint.' });
+      refreshStatus();
     } catch (err) {
       setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
-    } finally { setRunning(false); }
+    }
+  };
+
+  const handleResumeProfile = async (id) => {
+    try {
+      await post(`/${PLUGIN_ID}/media-sync/profiles/${id}/resume`, {});
+      setMessage({ type: 'success', text: 'Run resumed.' });
+      refreshStatus();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+    }
+  };
+
+  const handleCancelProfile = async (id) => {
+    if (!confirm('Stop this media profile run? Progress already done is kept, remaining work is aborted.')) return;
+    try {
+      await post(`/${PLUGIN_ID}/media-sync/profiles/${id}/cancel`, {});
+      setMessage({ type: 'success', text: 'Stop requested.' });
+      refreshStatus();
+    } catch (err) {
+      setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
+    }
   };
 
   const handleTest = async () => {
@@ -245,7 +304,7 @@ const MediaTab = () => {
               <Typography variant="delta">Media Sync Profiles</Typography>
               <Flex gap={2}>
                 <Button variant="secondary" onClick={handleTest} loading={testing} disabled={testing}>Test connection</Button>
-                <Button variant="secondary" onClick={handleRunAll} loading={running} disabled={running}>Sync All Active</Button>
+                <Button variant="secondary" onClick={handleRunAll} disabled={!!status?.running}>Sync All Active</Button>
                 <Button onClick={() => { setEditProfile({ ...EMPTY_PROFILE, includeMime: defaults?.mimeAll || [] }); setEditMode('create'); }}>
                   Create Profile
                 </Button>
@@ -289,9 +348,30 @@ const MediaTab = () => {
                       {!p.active && (
                         <Button variant="tertiary" size="S" onClick={() => handleActivate(p.id)} startIcon={<Check />}>Activate</Button>
                       )}
-                      {p.active && (
-                        <Button variant="secondary" size="S" onClick={() => handleRunProfile(p.id)} loading={running} disabled={running} startIcon={<Play />}>Run</Button>
-                      )}
+                      {p.active && (() => {
+                        const sp = (status?.profiles || []).find((x) => x.id === p.id);
+                        const isRunning = !!sp?.running;
+                        const isPaused = !!sp?.paused;
+                        if (isRunning && !isPaused) {
+                          return (
+                            <>
+                              <Button variant="tertiary" size="S" onClick={() => handlePauseProfile(p.id)}>Pause</Button>
+                              <IconButton label="Stop" onClick={() => handleCancelProfile(p.id)}><Stop /></IconButton>
+                            </>
+                          );
+                        }
+                        if (isPaused) {
+                          return (
+                            <>
+                              <Button variant="secondary" size="S" onClick={() => handleResumeProfile(p.id)} startIcon={<Play />}>Resume</Button>
+                              <IconButton label="Stop" onClick={() => handleCancelProfile(p.id)}><Stop /></IconButton>
+                            </>
+                          );
+                        }
+                        return (
+                          <Button variant="secondary" size="S" onClick={() => handleRunProfile(p.id)} startIcon={<Play />}>Run</Button>
+                        );
+                      })()}
                       <IconButton label="Edit" onClick={() => { setEditProfile({ ...p }); setEditMode('edit'); }}><Pencil /></IconButton>
                       <IconButton label="Delete" onClick={() => handleDelete(p.id)}><Trash /></IconButton>
                     </Flex>
@@ -382,21 +462,52 @@ const MediaTab = () => {
         {/* ── Status Tab ──────────────────────────────────────────────── */}
         <Tabs.Content value="status">
           <Box paddingTop={4}>
-            <Typography variant="delta" paddingBottom={3}>Media Sync Status</Typography>
-            {status?.profiles?.map((sp) => (
-              <Box key={sp.id} background="neutral0" padding={3} hasRadius shadow="tableShadow" marginBottom={2}>
-                <Flex justifyContent="space-between" alignItems="center">
-                  <Flex gap={2} alignItems="center">
-                    <Typography variant="omega" fontWeight="bold">{sp.name}</Typography>
-                    {sp.active && <Badge active>Active</Badge>}
-                    <Badge>{sp.running ? 'Running' : 'Idle'}</Badge>
+            <Flex justifyContent="space-between" alignItems="center" paddingBottom={3}>
+              <Typography variant="delta">Media Sync Status</Typography>
+              <Button variant="tertiary" size="S" onClick={refreshStatus}>Refresh</Button>
+            </Flex>
+            {status?.profiles?.map((sp) => {
+              const prog = sp.progress || null;
+              const stateLabel = sp.paused ? 'Paused' : sp.running ? 'Running' : 'Idle';
+              return (
+                <Box key={sp.id} background="neutral0" padding={3} hasRadius shadow="tableShadow" marginBottom={2}>
+                  <Flex justifyContent="space-between" alignItems="center">
+                    <Flex gap={2} alignItems="center">
+                      <Typography variant="omega" fontWeight="bold">{sp.name}</Typography>
+                      {sp.active && <Badge active>Active</Badge>}
+                      <Badge>{stateLabel}</Badge>
+                      {prog?.phase && (sp.running || sp.paused) && (
+                        <Typography variant="pi" textColor="neutral600">phase: {prog.phase}</Typography>
+                      )}
+                    </Flex>
+                    <Flex gap={1} alignItems="center">
+                      {sp.running && !sp.paused && (
+                        <>
+                          <Button variant="tertiary" size="S" onClick={() => handlePauseProfile(sp.id)}>Pause</Button>
+                          <Button variant="danger-light" size="S" startIcon={<Stop />} onClick={() => handleCancelProfile(sp.id)}>Stop</Button>
+                        </>
+                      )}
+                      {sp.paused && (
+                        <>
+                          <Button variant="secondary" size="S" startIcon={<Play />} onClick={() => handleResumeProfile(sp.id)}>Resume</Button>
+                          <Button variant="danger-light" size="S" startIcon={<Stop />} onClick={() => handleCancelProfile(sp.id)}>Stop</Button>
+                        </>
+                      )}
+                      <Typography variant="pi" textColor="neutral600" paddingLeft={2}>
+                        Mode: {(sp.executionMode || '').replace('_', ' ')} | Last: {sp.lastExecutedAt ? new Date(sp.lastExecutedAt).toLocaleString() : 'never'}
+                      </Typography>
+                    </Flex>
                   </Flex>
-                  <Typography variant="pi" textColor="neutral600">
-                    Mode: {(sp.executionMode || '').replace('_', ' ')} | Last: {sp.lastExecutedAt ? new Date(sp.lastExecutedAt).toLocaleString() : 'never'}
-                  </Typography>
-                </Flex>
-              </Box>
-            ))}
+                  {(sp.running || sp.paused) && prog && (
+                    <Box paddingTop={2}>
+                      <Typography variant="pi" textColor="neutral700">
+                        pushed: {prog.pushed || 0} · pulled: {prog.pulled || 0} · skipped: {prog.skipped || 0} · errors: {prog.errors || 0}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
             {status?.lastResult && (
               <Box paddingTop={3} background="neutral0" padding={4} hasRadius shadow="tableShadow">
                 <Typography variant="sigma">Last Run Result</Typography>

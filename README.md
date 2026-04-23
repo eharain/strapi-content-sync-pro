@@ -191,6 +191,7 @@ Full media synchronization between Strapi instances:
 - **Profile-based** — Create media sync profiles with direction, conflict strategy, MIME filters, filename patterns, and execution settings.
 - **DB + File Sync** — Syncs both the `plugin::upload.file` database rows and the actual file bytes.
 - **Morph Link Remapping** — Syncs `files_related_morphs` links by mapping file + related entities through documentId, then remapping to local numeric ids before insert.
+- **Live Status + Pause/Resume/Stop** — The Media tab polls status every 2 s while a profile is running or paused and shows live phase and counters (`pushed`, `pulled`, `skipped`, `errors`). Long runs can be paused, resumed, or stopped cooperatively from the UI or via `POST /api/strapi-content-sync-pro/media-sync/profiles/:id/pause|resume|cancel` (URL strategy; rsync runs cannot be paused mid-process).
 
 ## Enforcement
 

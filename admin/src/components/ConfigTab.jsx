@@ -143,6 +143,38 @@ const ConfigTab = () => {
         }
     };
 
+    // Validate + normalize a Strapi Server URL entered by the user.
+    // Returns { ok: true, normalized } or { ok: false, error }.
+    const validateBaseUrl = (raw) => {
+        if (!raw || !raw.trim()) {
+            return { ok: false, error: 'Server URL is required' };
+        }
+        let url = raw.trim();
+        if (!/^https?:\/\//i.test(url)) {
+            return {
+                ok: false,
+                error: 'Server URL must start with http:// or https:// (e.g. http://localhost:4010)',
+            };
+        }
+        // Strip trailing slashes and common mistakes like /admin or /api
+        url = url.replace(/\/+$/, '').replace(/\/admin$/i, '').replace(/\/api$/i, '');
+        try {
+            const parsed = new URL(url);
+            if (!parsed.hostname) {
+                return { ok: false, error: 'Server URL is missing a hostname' };
+            }
+            if (parsed.pathname && parsed.pathname !== '/' && parsed.pathname !== '') {
+                return {
+                    ok: false,
+                    error: `Server URL should be the Strapi root (e.g. http://localhost:4010), not include a path like "${parsed.pathname}"`,
+                };
+            }
+        } catch {
+            return { ok: false, error: 'Server URL is not a valid URL' };
+        }
+        return { ok: true, normalized: url };
+    };
+
     // Login with credentials to remote server and get/create API token
     const handleLoginWithCredentials = async () => {
         if (!config.baseUrl || !credentials.email || !credentials.password) {
@@ -150,12 +182,22 @@ const ConfigTab = () => {
             return;
         }
 
+        const urlCheck = validateBaseUrl(config.baseUrl);
+        if (!urlCheck.ok) {
+            setLoginState({ loading: false, success: false, error: urlCheck.error });
+            return;
+        }
+        // Auto-correct the stored value if we had to normalize it (e.g. trim slash or /admin)
+        if (urlCheck.normalized !== config.baseUrl) {
+            setConfig((prev) => ({ ...prev, baseUrl: urlCheck.normalized }));
+        }
+
         setLoginState({ loading: true, success: false, error: null });
 
         try {
             // Call our backend to proxy the login request
             const response = await post(`/${PLUGIN_ID}/config/remote-login`, {
-                baseUrl: config.baseUrl,
+                baseUrl: urlCheck.normalized,
                 email: credentials.email,
                 password: credentials.password,
             });
@@ -368,9 +410,45 @@ const ConfigTab = () => {
                                                 placeholder="https://my-other-strapi.com"
                                                 value={config.baseUrl}
                                                 onChange={(e) => setConfig((p) => ({ ...p, baseUrl: e.target.value }))}
+                                                onBlur={(e) => {
+                                                    const v = validateBaseUrl(e.target.value);
+                                                    if (v.ok && v.normalized !== e.target.value) {
+                                                        setConfig((p) => ({ ...p, baseUrl: v.normalized }));
+                                                    }
+                                                }}
                                             />
-                                            <Field.Hint>URL of the remote Strapi server where this plugin is also installed</Field.Hint>
+                                            <Field.Hint>URL of the remote Strapi server where this plugin is also installed. Use the root URL only (e.g. http://localhost:4010) — do not append /admin or /api.</Field.Hint>
+                                            {config.baseUrl && (() => {
+                                                const v = validateBaseUrl(config.baseUrl);
+                                                return v.ok ? null : (
+                                                    <Box paddingTop={1}>
+                                                        <Typography variant="pi" textColor="danger600">
+                                                            {v.error}
+                                                        </Typography>
+                                                    </Box>
+                                                );
+                                            })()}
                                         </Field.Root>
+
+                                        <Box>
+                                            <Alert variant="default" title="Before you continue">
+                                                <Box>
+                                                    <Typography variant="pi">
+                                                        • <strong>Server URL</strong> must be the Strapi root (e.g. <code>http://localhost:4010</code>) — not <code>/admin</code>, <code>/api</code>, or an internal IP the server can't see.
+                                                    </Typography>
+                                                </Box>
+                                                <Box paddingTop={1}>
+                                                    <Typography variant="pi">
+                                                        • Use an <strong>existing admin user's</strong> email and password for the remote Strapi panel. This is not an API token and not a local DB user.
+                                                    </Typography>
+                                                </Box>
+                                                <Box paddingTop={1}>
+                                                    <Typography variant="pi">
+                                                        • If you see "Missing or invalid credentials", verify the URL first, then the email/password. A wrong URL often surfaces as an auth error.
+                                                    </Typography>
+                                                </Box>
+                                            </Alert>
+                                        </Box>
 
                                         <Field.Root>
                                             <Field.Label>API Token</Field.Label>
@@ -391,7 +469,7 @@ const ConfigTab = () => {
                                             <Button
                                                 variant="secondary"
                                                 onClick={() => setShowLoginModal(true)}
-                                                disabled={!config.baseUrl}
+                                                disabled={!config.baseUrl || !validateBaseUrl(config.baseUrl).ok}
                                             >
                                                 {config.apiToken ? 'Regenerate' : 'Generate'}
                                             </Button>

@@ -840,6 +840,40 @@ http://localhost:1337</CodeBlock>
               </Typography>
             </HelpSection>
 
+            <HelpSection title="Live status, Pause, Resume, and Stop">
+              <Typography variant="omega">
+                Media sync runs can take a long time. The Media tab shows live state for any profile
+                that is currently running or paused and automatically polls status every 2 seconds
+                while work is in progress, so you can navigate away and come back without losing
+                visibility. The Status sub-tab shows the active phase (for example
+                <code> listing</code>, <code>pushing</code>, <code>pulling</code>) and live counters
+                for <code>pushed</code>, <code>pulled</code>, <code>skipped</code>, and
+                <code> errors</code>.
+              </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><Typography variant="omega"><strong>Run</strong> - starts the profile as a background job; the UI flips to Running immediately and keeps polling.</Typography></li>
+                <li><Typography variant="omega"><strong>Pause</strong> - requests a cooperative halt at the next checkpoint (between pages/batches). Already in-flight file transfers finish first.</Typography></li>
+                <li><Typography variant="omega"><strong>Resume</strong> - continues a paused run from where it stopped without redoing completed work.</Typography></li>
+                <li><Typography variant="omega"><strong>Stop</strong> - cancels the run at the next checkpoint. Work already synced is kept; remaining items are skipped.</Typography></li>
+              </ul>
+              <Typography variant="omega" paddingTop={2}>
+                Corresponding endpoints:
+              </Typography>
+              <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
+                <li><code>POST /api/strapi-content-sync-pro/media-sync/profiles/:id/pause</code></li>
+                <li><code>POST /api/strapi-content-sync-pro/media-sync/profiles/:id/resume</code></li>
+                <li><code>POST /api/strapi-content-sync-pro/media-sync/profiles/:id/cancel</code></li>
+                <li><code>GET  /api/strapi-content-sync-pro/media-sync/status</code> (returns <code>running</code>, <code>paused</code>, and per-profile <code>progress</code>)</li>
+              </ul>
+              <Typography variant="pi" textColor="warning600" paddingTop={2}>
+                <strong>Note:</strong> Pause/Resume/Stop are implemented for the <strong>URL</strong>
+                strategy, which is the default and most common choice. The <strong>rsync</strong>
+                strategy runs as a single child process and cannot be paused mid-flight; for rsync
+                profiles these controls are a no-op until the current rsync invocation finishes on
+                its own.
+              </Typography>
+            </HelpSection>
+
             <HelpSection title="Dry run & testing">
               <Typography variant="omega">
                 Toggle <strong>Dry run</strong> on a profile to list what would change without transferring any

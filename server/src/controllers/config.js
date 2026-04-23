@@ -198,10 +198,67 @@ module.exports = {
    * Proxy login to remote Strapi and retrieve/create API token
    */
   async remoteLogin(ctx) {
-    const { baseUrl, email, password } = ctx.request.body;
+    const { baseUrl: rawBaseUrl, email, password } = ctx.request.body;
 
-    if (!baseUrl || !email || !password) {
+    if (!rawBaseUrl || !email || !password) {
       return ctx.badRequest('baseUrl, email, and password are required');
+    }
+
+    // --- Normalize and validate the base URL so URL mistakes produce a clear message ---
+    let baseUrl = String(rawBaseUrl).trim();
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      return ctx.badRequest(
+        `Invalid Server URL "${rawBaseUrl}": must start with http:// or https:// (e.g. http://localhost:4010)`
+      );
+    }
+    // Strip trailing slashes and accidental /admin suffix
+    baseUrl = baseUrl.replace(/\/+$/, '').replace(/\/admin$/i, '');
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(baseUrl);
+    } catch {
+      return ctx.badRequest(
+        `Invalid Server URL "${rawBaseUrl}": not a valid URL. Expected format: http(s)://host[:port]`
+      );
+    }
+    if (!parsedUrl.hostname) {
+      return ctx.badRequest(`Invalid Server URL "${rawBaseUrl}": missing hostname`);
+    }
+
+    // --- Pre-flight reachability check against /admin/init so wrong URL != "invalid credentials" ---
+    try {
+      const initResp = await fetch(`${baseUrl}/admin/init`, { method: 'GET' });
+      if (!initResp.ok) {
+        return ctx.throw(
+          502,
+          `Server URL "${baseUrl}" is reachable but did not respond as a Strapi admin (HTTP ${initResp.status} on /admin/init). Check that the URL points to the root of a Strapi v5 server (no /admin suffix) and that the admin panel is enabled.`
+        );
+      }
+      const initData = await initResp.json().catch(() => null);
+      if (!initData || typeof initData !== 'object' || !('data' in initData)) {
+        return ctx.throw(
+          502,
+          `Server URL "${baseUrl}" did not return a valid Strapi /admin/init response. Please verify the URL points to a Strapi v5 instance.`
+        );
+      }
+      if (initData.data && initData.data.hasAdmin === false) {
+        return ctx.throw(
+          400,
+          `Remote Strapi at "${baseUrl}" has no admin user yet. Create the first admin in the remote Strapi panel before generating a token.`
+        );
+      }
+    } catch (err) {
+      if (err && err.status) throw err;
+      const code = err && (err.cause?.code || err.code);
+      const hint =
+        code === 'ECONNREFUSED'
+          ? 'Connection refused — the server is not running or not listening on that port.'
+          : code === 'ENOTFOUND'
+            ? 'Host not found — check the hostname/IP spelling and that it resolves from this machine.'
+            : code === 'ETIMEDOUT'
+              ? 'Request timed out — check firewall, network, and that the port is reachable.'
+              : 'Network error while contacting the remote server.';
+      return ctx.throw(502, `Cannot reach "${baseUrl}": ${hint}${code ? ` (${code})` : ''}`);
     }
 
     try {
@@ -219,7 +276,23 @@ module.exports = {
 
       if (!loginResponse.ok) {
         const errorBody = await loginResponse.json().catch(() => ({}));
-        const errorMessage = errorBody?.error?.message || `Login failed with status ${loginResponse.status}`;
+        const remoteMsg = errorBody?.error?.message;
+        // Distinguish URL-vs-credential failures so users aren't misled
+        if (loginResponse.status === 404) {
+          return ctx.throw(
+            404,
+            `"${baseUrl}/admin/login" not found (HTTP 404). The Server URL likely points to the wrong path — use the Strapi root URL (e.g. http://localhost:4010), not an admin or API sub-path.`
+          );
+        }
+        if (loginResponse.status === 405) {
+          return ctx.throw(
+            405,
+            `"${baseUrl}/admin/login" rejected the request method. The Server URL may be pointing to a proxy or non-Strapi endpoint.`
+          );
+        }
+        const errorMessage = remoteMsg
+          ? `Remote login failed: ${remoteMsg}. If you believe the credentials are correct, double-check the Server URL "${baseUrl}" is the right Strapi instance.`
+          : `Login failed with status ${loginResponse.status} at ${baseUrl}/admin/login`;
         return ctx.throw(loginResponse.status, errorMessage);
       }
 
