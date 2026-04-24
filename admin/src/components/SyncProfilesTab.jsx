@@ -38,6 +38,11 @@ const CONFLICT_STRATEGY_OPTIONS = [
   { value: 'remote_wins', label: 'Remote Wins' },
 ];
 
+const EXECUTION_STRATEGY_OPTIONS = [
+  { value: 'hybrid_two_pass', label: 'Hybrid Two-Pass (Recommended)', hint: 'Pass 1: entities. Pass 2: relations from owner side. Most reliable.' },
+  { value: 'one_pass', label: 'One-Pass (Advanced)', hint: 'Single pass. Depth fixed to 1. Only owner-side direct in-scope targets. Less reliable for relation-heavy content.' },
+];
+
 const FIELD_DIRECTION_OPTIONS = [
   { value: 'both', label: 'Both' },
   { value: 'push', label: 'Push' },
@@ -82,6 +87,7 @@ const SyncProfilesTab = () => {
     contentType: '',
     direction: 'both',
     conflictStrategy: 'latest',
+    executionStrategy: 'hybrid_two_pass',
     syncDeletions: false,
     isActive: false,
     isSimple: true,
@@ -313,6 +319,7 @@ const SyncProfilesTab = () => {
       contentType: '',
       direction: 'both',
       conflictStrategy: 'latest',
+      executionStrategy: 'hybrid_two_pass',
       syncDeletions: false,
       isActive: false,
       isSimple: true,
@@ -330,6 +337,7 @@ const SyncProfilesTab = () => {
       contentType: profile.contentType,
       direction: profile.direction || 'both',
       conflictStrategy: profile.conflictStrategy || 'latest',
+      executionStrategy: profile.executionStrategy || 'hybrid_two_pass',
       syncDeletions: !!profile.syncDeletions,
       isActive: profile.isActive,
       isSimple: profile.isSimple !== false,
@@ -608,6 +616,12 @@ const SyncProfilesTab = () => {
                     <Badge active={!profile.isSimple}>
                       {profile.isSimple ? 'Simple' : 'Advanced'}
                     </Badge>
+                    {' '}
+                    <Badge active={profile.executionStrategy !== 'one_pass'} title={
+                      profile.executionStrategy === 'one_pass' ? 'One-Pass (depth=1, owner-side only)' : 'Hybrid Two-Pass (entities then relations)'
+                    }>
+                      {profile.executionStrategy === 'one_pass' ? '1-Pass' : '2-Pass'}
+                    </Badge>
                   </Td>
                   <Td>
                     {profile.isActive ? (
@@ -768,6 +782,26 @@ const SyncProfilesTab = () => {
                     ))}
                   </SingleSelect>
                   <Field.Hint>How to resolve when the same record is modified on both sides</Field.Hint>
+                </Field.Root>
+              </Box>
+
+              {/* Execution Strategy */}
+              <Box paddingBottom={4}>
+                <Field.Root>
+                  <Field.Label>Execution Strategy</Field.Label>
+                  <SingleSelect
+                    value={formData.executionStrategy || 'hybrid_two_pass'}
+                    onChange={(value) => setFormData((p) => ({ ...p, executionStrategy: value }))}
+                  >
+                    {EXECUTION_STRATEGY_OPTIONS.map((opt) => (
+                      <SingleSelectOption key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SingleSelectOption>
+                    ))}
+                  </SingleSelect>
+                  <Field.Hint>
+                    {EXECUTION_STRATEGY_OPTIONS.find(o => o.value === (formData.executionStrategy || 'hybrid_two_pass'))?.hint}
+                  </Field.Hint>
                 </Field.Root>
               </Box>
 

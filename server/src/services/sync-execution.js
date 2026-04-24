@@ -277,7 +277,8 @@ module.exports = ({ strapi }) => {
 
       const executionSettings = await this.getProfileExecutionSettings(profileId);
       const syncDependencies = options.syncDependencies ?? executionSettings.syncDependencies;
-      const dependencyDepth = options.dependencyDepth ?? executionSettings.dependencyDepth ?? 1;
+      // dependencyDepth is always 1 per strategy constraints regardless of stored setting
+      const dependencyDepth = 1;
 
       const startTime = new Date();
       const reportHandle = await syncStatsService.createRunReport({
@@ -299,14 +300,25 @@ module.exports = ({ strapi }) => {
 
         const dependencyResults = [];
         if (syncDependencies) {
-          const dependencyOrder = dependencyResolver
-            .getSyncOrder(profile.contentType, dependencyDepth)
-            .filter((uid) => uid !== profile.contentType && uid.startsWith('api::') && !!strapi.contentTypes[uid]);
+          // Constrained dependency expansion:
+          //   - depth fixed to 1
+          //   - owner/declaring side only (no mappedBy/inversedBy traversal)
+          //   - only targets in sync scope (enabled content types)
+          const syncConfigService = plugin().service('syncConfig');
+          const syncConfig = await syncConfigService.getSyncConfig();
+          const scopeUids = new Set(
+            (syncConfig.contentTypes || [])
+              .filter((ct) => ct.enabled && ct.uid !== profile.contentType)
+              .map((ct) => ct.uid)
+          );
 
-          for (const dependencyUid of dependencyOrder) {
-            const syncConfigService = plugin().service('syncConfig');
-            const syncConfig = await syncConfigService.getSyncConfig();
-            const depEnabled = (syncConfig.contentTypes || []).some((ct) => ct.uid === dependencyUid && ct.enabled);
+          const constrainedTargets = dependencyResolver.getConstrainedDependencyTargets(
+            profile.contentType,
+            scopeUids
+          );
+
+          for (const { uid: dependencyUid } of constrainedTargets) {
+            const depEnabled = scopeUids.has(dependencyUid);
             if (!depEnabled) {
               dependencyResults.push({
                 uid: dependencyUid,
