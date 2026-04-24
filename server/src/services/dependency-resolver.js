@@ -196,6 +196,43 @@ module.exports = ({ strapi }) => {
     },
 
     /**
+     * Get constrained dependency targets for a content type under one-pass rules:
+     *   - depth fixed to 1
+     *   - only direct owner-side relation targets (no mappedBy / inversedBy)
+     *   - only targets in sync scope (scopeUids set)
+     * Returns array of { uid, field, relation } objects.
+     */
+    getConstrainedDependencyTargets(uid, scopeUids = new Set()) {
+      const analysis = this.analyzeContentType(uid);
+      const results = [];
+
+      for (const rel of analysis.relations) {
+        // Owner/declaring side only: skip inverse and mapped-by sides
+        if (rel.mappedBy || rel.inversedBy) continue;
+        // Skip self-references
+        if (rel.target === uid) continue;
+        // Skip targets not in sync scope
+        if (scopeUids.size > 0 && !scopeUids.has(rel.target)) continue;
+        // Skip plugin-internal types unless users-permissions
+        if (rel.target.startsWith('plugin::') && !rel.target.startsWith('plugin::users-permissions')) continue;
+
+        results.push({
+          uid: rel.target,
+          field: rel.field,
+          relation: rel.relation,
+        });
+      }
+
+      // Deduplicate by target uid (keep first occurrence)
+      const seen = new Set();
+      return results.filter((r) => {
+        if (seen.has(r.uid)) return false;
+        seen.add(r.uid);
+        return true;
+      });
+    },
+
+    /**
      * Extract related entity IDs from a record for dependency syncing
      */
     extractRelatedIds(record, uid) {

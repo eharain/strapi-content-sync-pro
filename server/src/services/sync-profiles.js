@@ -37,6 +37,7 @@ module.exports = ({ strapi }) => {
 
   const VALID_DIRECTIONS = ['push', 'pull', 'both', 'none'];
   const VALID_CONFLICT_STRATEGIES = ['latest', 'local_wins', 'remote_wins'];
+  const VALID_EXECUTION_STRATEGIES = ['hybrid_two_pass', 'one_pass'];
 
   async function getSyncMode() {
     const configService = strapi.plugin('strapi-content-sync-pro').service('config');
@@ -70,24 +71,33 @@ module.exports = ({ strapi }) => {
       const data = await store.get({ key: STORE_KEY });
       const profiles = data || [];
       const syncMode = await getSyncMode();
-      if (syncMode !== 'single_side') return profiles;
 
       let changed = false;
       const normalized = profiles.map((p) => {
-        if (p.direction === 'pull') return p;
-        changed = true;
-        return {
-          ...p,
-          direction: 'pull',
-          syncDeletions: !!p.syncDeletions,
-          fieldPolicies: Array.isArray(p.fieldPolicies)
-            ? p.fieldPolicies.map((fp) => ({
-                ...fp,
-                direction: fp.direction === 'none' ? 'none' : 'pull',
-              }))
-            : p.fieldPolicies,
-          updatedAt: new Date().toISOString(),
-        };
+        let next = p;
+
+        if (!next.executionStrategy) {
+          changed = true;
+          next = { ...next, executionStrategy: 'hybrid_two_pass' };
+        }
+
+        if (syncMode === 'single_side' && next.direction !== 'pull') {
+          changed = true;
+          next = {
+            ...next,
+            direction: 'pull',
+            syncDeletions: !!next.syncDeletions,
+            fieldPolicies: Array.isArray(next.fieldPolicies)
+              ? next.fieldPolicies.map((fp) => ({
+                  ...fp,
+                  direction: fp.direction === 'none' ? 'none' : 'pull',
+                }))
+              : next.fieldPolicies,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+
+        return next;
       });
 
       if (changed) {
@@ -222,12 +232,17 @@ module.exports = ({ strapi }) => {
         }
       }
 
+      if (profileData.executionStrategy && !VALID_EXECUTION_STRATEGIES.includes(profileData.executionStrategy)) {
+        throw new Error(`Invalid execution strategy "${profileData.executionStrategy}"`);
+      }
+
       const newProfile = {
         id: generateId(),
         name: profileData.name,
         contentType: profileData.contentType,
         direction: profileData.direction || 'both',
         conflictStrategy: profileData.conflictStrategy || 'latest',
+        executionStrategy: profileData.executionStrategy || 'hybrid_two_pass',
         syncDeletions: !!profileData.syncDeletions,
         isActive: profileData.isActive || false,
         isSimple: profileData.isSimple !== false, // Default to simple mode
@@ -297,6 +312,10 @@ module.exports = ({ strapi }) => {
             throw new Error(`Invalid direction "${fp.direction}" for field "${fp.field}"`);
           }
         }
+      }
+
+      if (updates.executionStrategy && !VALID_EXECUTION_STRATEGIES.includes(updates.executionStrategy)) {
+        throw new Error(`Invalid execution strategy "${updates.executionStrategy}"`);
       }
 
       // If setting this profile as active, deactivate others for same content type
@@ -392,6 +411,7 @@ module.exports = ({ strapi }) => {
       return this.createProfile({
         ...presetConfig,
         contentType: contentTypeUid,
+        executionStrategy: 'hybrid_two_pass',
         syncDeletions: false,
         isSimple: true,
         isActive: false,
@@ -428,6 +448,7 @@ module.exports = ({ strapi }) => {
       return {
         direction: activeProfile.direction,
         conflictStrategy: activeProfile.conflictStrategy,
+        executionStrategy: activeProfile.executionStrategy || 'hybrid_two_pass',
         fieldPolicies: activeProfile.isSimple ? null : await this.getFieldPoliciesForContentType(contentTypeUid),
       };
     },

@@ -1,60 +1,62 @@
 # Sync Strategy Approach Review
 
-This document consolidates and refines the discussed approaches for sync reliability, dependency handling, content-type enabling, and profile editing.
+This document consolidates and refines the agreed approach for sync reliability, dependency handling, content-type enabling, and profile editing.
 
-## 1) Core Execution Strategies
+## 1) Core Execution Strategy (Hybrid Two-Pass)
 
-### A. Two-Phase Sync (Recommended Default)
+**Consolidated rule:** Use a hybrid two-pass sync approach: **pass 1 syncs core entities, pass 2 syncs one-direction dependencies from owner/declaring side only** (entities first, relations second).
 
-Run sync in two explicit phases:
+Implementation shape:
 
-1. **Entities phase**
-   - Sync core entity payload first.
-   - Materialize records on both sides before linking.
-2. **Relations phase**
-   - Sync/link relation fields after entities exist.
+1. **Pass 1: Entities First**
+   - Sync core entity payload first (materialize records on both sides).
+   - Avoid relation-linking behavior in this pass.
+2. **Pass 2: Relations Second (One Direction)**
+   - Sync dependencies/relations only after entities exist.
+   - Apply relation sync in one direction from the **owner/declaring side only**.
 
-Why: reduces broken/partial links and ordering fragility in relation-heavy schemas.
+### Media in the Same Two-Pass Model
 
-### B. One-Pass Sync (Advanced / Less Reliable)
+Media follows the same strategy:
 
-Keep as optional mode with strict constraints:
+1. **Pass 1 (Core media):** sync media entities/files first.
+2. **Pass 2 (Media links):** sync media relations from owner entities (content types that hold media fields).
 
-- `dependencyDepth` is always **1**.
-- Include only direct dependency targets that are in sync scope.
-- Never traverse owning-side metadata (`mappedBy` / `inversedBy`).
+Design decision:
 
-This is intentionally constrained to avoid unsafe deep traversal complexity.
+- Treat media as a referenced target, not the relation-driving owner.
+- Relation updates are written from owning entities only.
+- Remove separate morph-side traversal/update strategy from the approach.
+
+Why: this removes duplicate/bi-directional link work, reduces conflict risk, and keeps relation application deterministic.
 
 ---
 
 ## 2) Dependency Rules (Authoritative)
 
-For dependency sync, one-pass mode must:
+For dependency sync:
 
-1. Use `dependencyDepth = 1` only.
-2. Include only targets that are part of sync scope.
-3. Never traverse owning-side metadata (`mappedBy` / `inversedBy`).
+1. `dependencyDepth` is always **1**.
+2. Include only dependency targets that are part of sync scope.
+3. Never traverse owning-side metadata graph expansion via `mappedBy` / `inversedBy`.
+4. In pass 2, apply relation updates from the **owner/declaring side only**.
 
 Applied interpretation:
 
 - Use direct relation target only.
 - Exclude self-links and out-of-scope content types.
-- Do not expand traversal from inverse/owning metadata.
+- No recursive traversal.
+- No inverse-side fan-out traversal.
+- Media links are applied only from owner entities; no separate morph-driven inverse traversal.
 
 ---
 
 ## 3) Execution Ordering
 
-### Two-Phase
-
-- Entities phase should run in stable dependency-aware order.
-- Relations phase runs after entity pass completes for all selected types.
-
-### One-Pass
-
-- More relational content types should receive lower priority (higher order number).
-- Ordering should consider only allowed direct relations (under the depth=1 + in-scope + no mappedBy/inversedBy rules).
+- Entities pass runs first for all selected content types and core media.
+- Relations pass runs second for all selected content types, including media link fields from owner entities.
+- Ordering remains dependency-aware and stable.
+- For relation-heavy types, keep lower priority (higher order number) where ordering tie-break is needed.
 
 ---
 
@@ -69,7 +71,7 @@ Behavior for “enable with dependencies”:
 
 - Expand only direct in-scope relation targets.
 - Do not recursively traverse.
-- Ignore mappedBy/inversedBy traversal semantics.
+- Do not traverse through `mappedBy` / `inversedBy`.
 
 Recommended UX:
 
@@ -96,16 +98,19 @@ Editable advanced settings include:
 - sync deletions
 - execution mode
 - dependency sync toggle
-- dependency depth (constrained to 1 in one-pass)
+- dependency depth (fixed to 1 where dependency sync is used)
 - field-level policies
 
 ---
 
 ## 6) Suggested Implementation Sequence
 
-1. Add strategy contract (`two_phase` default, `one_pass` advanced).
-2. Enforce one-pass dependency constraints globally (depth=1, in-scope only, no mappedBy/inversedBy traversal).
-3. Implement two-phase orchestration in sync-now, profile execution, and bulk transfer.
+1. Add strategy contract as **hybrid two-pass default**.
+2. Enforce dependency constraints globally (depth=1, in-scope only, no mappedBy/inversedBy traversal).
+3. Implement orchestration in sync-now, profile execution, and bulk transfer:
+   - pass 1 entities + core media
+   - pass 2 owner-side relations (including media links from owner entities)
+   - remove separate morph/inverse traversal flow
 4. Add content-type enable flow with “enable dependencies too” option and preview.
 5. Keep profile editing fully available, including advanced settings.
 6. Update UI hints to explain constraints and reliability tradeoffs.
@@ -114,7 +119,9 @@ Editable advanced settings include:
 
 ## 7) Final Position
 
-- Default production-safe path: **Two-phase sync**.
-- Keep one-pass only as constrained advanced mode.
-- Add **dependency-aware enable-all-direct-dependencies** option.
-- Preserve and improve advanced profile editing instead of restricting it.
+- Use **hybrid two-pass** execution: entities/core media first, relations second.
+- Relation sync in pass 2 is **one directional from owner/declaring side**.
+- Media links are synced from owner entities only; no separate morph-side inverse traversal strategy.
+- Keep dependency scope constrained (depth=1, in-scope targets only).
+- Add dependency-aware enable-all-direct-dependencies option.
+- Preserve and improve advanced profile editing.
