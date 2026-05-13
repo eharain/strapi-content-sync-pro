@@ -139,6 +139,12 @@ const bootstrap = ({ strapi }) => {
   // Defer scheduler initialization
   setImmediate(async () => {
     try {
+      const workflowNotificationsService = strapi.plugin('strapi-content-sync-pro').service('workflowNotifications');
+      const seedResult = await workflowNotificationsService.seedTemplates();
+      if (seedResult.seeded) {
+        strapi.log.info(`[data-sync] Seeded ${seedResult.total} workflow notification templates`);
+      }
+
       const executionService = strapi.plugin('strapi-content-sync-pro').service('syncExecution');
       await executionService.initializeSchedulers();
       strapi.log.info('[data-sync] Scheduled sync jobs initialized');

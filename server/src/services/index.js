@@ -12,6 +12,7 @@ const dependencyResolver = require('./dependency-resolver');
 const syncEnforcement = require('./sync-enforcement');
 const syncMedia = require('./sync-media');
 const alerts = require('./alerts');
+const workflowNotifications = require('./workflow-notifications');
 const syncStats = require('./sync-stats');
 const bulkTransfer = require('./bulk-transfer');
 
@@ -28,6 +29,7 @@ module.exports = {
   syncEnforcement,
   syncMedia,
   alerts,
+  workflowNotifications,
   syncStats,
   bulkTransfer,
 };
