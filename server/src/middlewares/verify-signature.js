@@ -3,10 +3,10 @@
 const { verifySignature } = require('../utils/hmac');
 
 /**
- * Koa middleware that validates the HMAC signature sent by a remote
- * Strapi instance.  Used on the /receive endpoint.
+ * Strapi v5 middleware factory. Validates the HMAC signature sent by a
+ * remote Strapi instance. Used on the /receive endpoint.
  */
-module.exports = async (ctx, next) => {
+module.exports = (config, { strapi }) => async (ctx, next) => {
   const signature = ctx.request.headers['x-sync-signature'];
   const timestamp = ctx.request.headers['x-sync-timestamp'];
 
