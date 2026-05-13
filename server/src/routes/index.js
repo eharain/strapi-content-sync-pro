@@ -1,7 +1,5 @@
 'use strict';
 
-const verifySignature = require('../middlewares/verify-signature');
-
 /**
  * Strapi v5 plugin routes MUST be split between:
  *   - content-api: exposed under /api/<plugin>/...  (remote server calls)
@@ -12,7 +10,11 @@ const contentApiRoutes = [
   { method: 'GET',  path: '/ping',                    handler: 'ping.index',                     config: { policies: [], auth: false } },
   { method: 'GET',  path: '/enforcement/local-info',  handler: 'syncEnforcement.getLocalInfo',   config: { policies: [] } },
   { method: 'GET',  path: '/enforcement/schema/:uid', handler: 'syncEnforcement.getLocalSchema', config: { policies: [] } },
-  { method: 'POST', path: '/receive',                 handler: 'sync.receive',                   config: { policies: [], auth: false, middlewares: [verifySignature] } },
+  { method: 'POST', path: '/receive',                 handler: 'sync.receive',                   config: { policies: [], auth: false, middlewares: ['plugin::strapi-content-sync-pro.verifySignature'] } },
+  { method: 'POST', path: '/workflow-notifications/emit',      handler: 'workflowNotifications.emit',         config: { policies: [], auth: false } },
+  { method: 'GET',  path: '/workflow-notifications',           handler: 'workflowNotifications.find',         config: { policies: [] } },
+  { method: 'GET',  path: '/workflow-notifications/templates', handler: 'workflowNotifications.getTemplates', config: { policies: [] } },
+  { method: 'POST', path: '/workflow-notifications/seed',      handler: 'workflowNotifications.seedTemplates', config: { policies: [] } },
 
   // Media morph-link sync (called by the peer instance during runProfile)
   { method: 'GET',  path: '/media-sync/morph-links',       handler: 'syncMedia.getMorphLinks',   config: { policies: [] } },
@@ -82,6 +84,11 @@ const adminRoutes = [
   { method: 'PUT',  path: '/alerts/settings',      handler: 'alerts.updateSettings', config: { policies: [] } },
   { method: 'POST', path: '/alerts/test/:channel', handler: 'alerts.testChannel',    config: { policies: [] } },
   { method: 'GET',  path: '/alerts/stats',         handler: 'alerts.getStats',       config: { policies: [] } },
+
+  // Workflow notifications
+  { method: 'GET',  path: '/workflow-notifications',           handler: 'workflowNotifications.find',         config: { policies: [] } },
+  { method: 'GET',  path: '/workflow-notifications/templates', handler: 'workflowNotifications.getTemplates', config: { policies: [] } },
+  { method: 'POST', path: '/workflow-notifications/seed',      handler: 'workflowNotifications.seedTemplates', config: { policies: [] } },
 
   // Media sync
   { method: 'GET',    path: '/media-sync/profiles',              handler: 'syncMedia.getProfiles',         config: { policies: [] } },

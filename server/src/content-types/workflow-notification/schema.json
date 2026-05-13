@@ -1,0 +1,26 @@
+{
+  "kind": "collectionType",
+  "collectionName": "workflow_notifications",
+  "info": {
+    "singularName": "workflow-notification",
+    "pluralName": "workflow-notifications",
+    "displayName": "Workflow Notification"
+  },
+  "options": {},
+  "pluginOptions": {
+    "content-manager": { "visible": false },
+    "content-type-builder": { "visible": false }
+  },
+  "attributes": {
+    "sourceApp": { "type": "enumeration", "enum": ["web", "web-user-app"] },
+    "workflow": { "type": "enumeration", "enum": ["order", "purchase"] },
+    "event": { "type": "string" },
+    "title": { "type": "string", "required": true },
+    "message": { "type": "text", "required": true },
+    "status": { "type": "enumeration", "enum": ["pending", "sent", "failed"], "default": "pending" },
+    "recipient": { "type": "string" },
+    "orderId": { "type": "string" },
+    "purchaseId": { "type": "string" },
+    "metadata": { "type": "json" }
+  }
+}
