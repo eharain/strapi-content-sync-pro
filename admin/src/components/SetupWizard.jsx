@@ -6,6 +6,10 @@ import { ContentTypesTab } from './ContentTypesTab';
 import { SyncTab } from './SyncTab';
 import { resolvePath } from '../nav';
 
+// The Connect step only needs the connection form — enforcement and alerts are
+// advanced concerns kept out of the guided first-run (progressive disclosure).
+const ConnectStep = () => <ConfigTab only={['connection']} />;
+
 // Ordered steps of the guided first-run. Each step is its own URL
 // (/setup/connect, /setup/scope, /setup/run) so progress is deep-linkable and
 // the back button moves between steps.
@@ -14,8 +18,8 @@ const STEPS = [
         key: 'connect',
         label: 'Connect',
         title: 'Connect to your remote server',
-        hint: 'Enter the remote Strapi URL and an API token. You can generate a token from here if you have admin credentials.',
-        Component: ConfigTab,
+        hint: 'Enter the remote Strapi URL and an API token. You can generate a token from here if you have admin credentials. Enforcement and alerts are optional — set them later under Configure → Advanced.',
+        Component: ConnectStep,
     },
     {
         key: 'scope',
