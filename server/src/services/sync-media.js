@@ -25,6 +25,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { pipeline } = require('node:stream/promises');
 const { Readable } = require('node:stream');
+const { generateSignature } = require('../utils/hmac');
 
 const PROFILES_KEY = 'media-sync-profiles';
 const GLOBAL_SETTINGS_KEY = 'media-sync-global-settings';
@@ -506,13 +507,13 @@ module.exports = ({ strapi }) => {
       if (!fileCache.has(fileId)) {
         const file = await strapi.db.query('plugin::upload.file').findOne({
           where: { id: fileId },
-          select: ['id', 'documentId'],
+          select: ['id', 'documentId', 'name', 'ext', 'size'],
         });
         fileCache.set(fileId, file || null);
       }
 
       const file = fileCache.get(fileId);
-      if (!file?.documentId) continue;
+      if (!file?.id) continue;
 
       const relatedType = row.related_type;
       const relatedId = Number(row.related_id);
@@ -535,6 +536,11 @@ module.exports = ({ strapi }) => {
 
       out.push({
         fileDocumentId: file.documentId,
+        // Stable file identity: a URL-synced file gets a new documentId on the
+        // peer, so the receiver matches on name/ext/size when documentId misses.
+        fileName: file.name,
+        fileExt: file.ext,
+        fileSize: file.size,
         relatedType,
         relatedDocumentId,
         field: row.field || null,
@@ -552,17 +558,31 @@ module.exports = ({ strapi }) => {
 
     for (const link of links) {
       try {
-        if (!link?.fileDocumentId || !link?.relatedType || !link?.relatedDocumentId) {
-          skipped.push({ link, reason: 'missing required documentId fields' });
+        if ((!link?.fileDocumentId && !link?.fileName) || !link?.relatedType || !link?.relatedDocumentId) {
+          skipped.push({ link, reason: 'missing required identity fields' });
           continue;
         }
 
-        const file = await strapi.db.query('plugin::upload.file').findOne({
-          where: { documentId: link.fileDocumentId },
-          select: ['id', 'documentId'],
-        });
+        // Prefer documentId (exact), fall back to the stable name/ext/size key
+        // because URL-synced files are re-uploaded and get a fresh documentId.
+        let file = null;
+        if (link.fileDocumentId) {
+          file = await strapi.db.query('plugin::upload.file').findOne({
+            where: { documentId: link.fileDocumentId },
+            select: ['id', 'documentId'],
+          });
+        }
+        if (!file?.id && link.fileName != null) {
+          const where = { name: link.fileName };
+          if (link.fileExt != null) where.ext = link.fileExt;
+          if (link.fileSize != null) where.size = link.fileSize;
+          file = await strapi.db.query('plugin::upload.file').findOne({
+            where,
+            select: ['id', 'documentId'],
+          });
+        }
         if (!file?.id) {
-          skipped.push({ link, reason: 'file documentId not found locally' });
+          skipped.push({ link, reason: 'file not found locally (documentId + name/ext/size)' });
           continue;
         }
 
@@ -640,13 +660,18 @@ module.exports = ({ strapi }) => {
 
   async function applyRemoteMorphLinks(remoteConfig, links = []) {
     const url = new URL('/api/strapi-content-sync-pro/media-sync/morph-links/apply', remoteConfig.baseUrl);
+    const payload = { links };
+    const timestamp = Date.now().toString();
+    const signature = generateSignature(payload, remoteConfig.sharedSecret, timestamp);
     const res = await fetch(url.toString(), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${remoteConfig.apiToken}`,
         'Content-Type': 'application/json',
+        'x-sync-signature': signature,
+        'x-sync-timestamp': timestamp,
       },
-      body: JSON.stringify({ links }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -806,9 +831,22 @@ module.exports = ({ strapi }) => {
     }
   }
 
+  // Stable cross-instance identity for a file. `hash` is NOT usable: the upload
+  // service regenerates a random hash on ingest, so a file synced from the peer
+  // gets a different hash locally. name + ext + size is stable across instances
+  // and is what we match on for dedup.
+  function mediaStableKey(f) {
+    const name = String(f?.name || '').trim().toLowerCase();
+    const ext = String(f?.ext || '').toLowerCase();
+    const size = f?.size != null ? String(f.size) : '';
+    return `${name}|${ext}|${size}`;
+  }
+
   function shouldSkip(localFile, remoteFile, settings) {
     if (!localFile || !remoteFile) return false;
-    if (settings.skipIfSameSize && localFile.size === remoteFile.size && localFile.hash === remoteFile.hash) {
+    // Dedup on size (byte length is stable); hash is regenerated on upload and
+    // would otherwise never match, causing the same file to re-import forever.
+    if (settings.skipIfSameSize && localFile.size === remoteFile.size) {
       return true;
     }
     return false;
@@ -860,7 +898,7 @@ module.exports = ({ strapi }) => {
     for await (const batch of iterateLocalFiles(settings.pageSize)) {
       const a = await checkpoint(pid);
       if (a && a.cancelled) { totals.cancelled = true; break; }
-      for (const f of batch) localIndex.set(`${f.hash}|${f.name}`, f);
+      for (const f of batch) localIndex.set(mediaStableKey(f), f);
     }
 
     // PULL: remote -> local
@@ -871,22 +909,32 @@ module.exports = ({ strapi }) => {
         if (a && a.cancelled) { totals.cancelled = true; break; }
         const filtered = remoteBatch.filter((f) => passesFilters(f, profile));
         const result = await processBatch(filtered, async (rf) => {
-          const key = `${rf.hash}|${rf.name}`;
+          const key = mediaStableKey(rf);
           const lf = localIndex.get(key);
 
-          // DB-row sync
-          if (profile.syncDbRows) {
+          // File-byte sync first: uploadBufferToLocal goes through the upload
+          // service, which CREATES the file row (with real metadata) itself.
+          let didUpload = false;
+          if (profile.syncFileBytes) {
+            if (!shouldSkip(lf, rf, settings)) {
+              if (!settings.dryRun) {
+                const buf = await downloadToBuffer(remoteConfig, rf);
+                await uploadBufferToLocal(rf, buf);
+              }
+              didUpload = true;
+            }
+          }
+
+          // DB-row sync only when the byte upload did NOT already create/refresh
+          // the row — otherwise both paths create a row for the same file
+          // (the long-standing double-row bug). When bytes are disabled or the
+          // file was skipped, this still syncs the metadata row.
+          if (profile.syncDbRows && !didUpload) {
             const dbResult = await syncDbRowPull(rf, lf, profile);
             if (dbResult === 'created' || dbResult === 'updated') totals.dbRowsUpdated++;
           }
 
-          // File-byte sync
-          if (profile.syncFileBytes) {
-            if (shouldSkip(lf, rf, settings)) return 'skipped';
-            if (settings.dryRun) return 'success';
-            const buf = await downloadToBuffer(remoteConfig, rf);
-            await uploadBufferToLocal(rf, buf);
-          }
+          if (profile.syncFileBytes && !didUpload) return 'skipped';
           return 'success';
         }, settings.batchConcurrency, abort);
         totals.pulled += result.success;
@@ -926,7 +974,7 @@ module.exports = ({ strapi }) => {
       for await (const remoteBatch of iterateRemoteFiles(remoteConfig, settings.pageSize)) {
         const a = await checkpoint(pid);
         if (a && a.cancelled) { totals.cancelled = true; break; }
-        for (const f of remoteBatch) remoteIndex.set(`${f.hash}|${f.name}`, f);
+        for (const f of remoteBatch) remoteIndex.set(mediaStableKey(f), f);
       }
 
       if (!totals.cancelled) {
@@ -936,7 +984,7 @@ module.exports = ({ strapi }) => {
           if (a && a.cancelled) { totals.cancelled = true; break; }
           const filtered = localBatch.filter((f) => passesFilters(f, profile));
           const result = await processBatch(filtered, async (lf) => {
-            const key = `${lf.hash}|${lf.name}`;
+            const key = mediaStableKey(lf);
             const rf = remoteIndex.get(key);
 
             // DB-row sync (push metadata)
@@ -1054,7 +1102,10 @@ module.exports = ({ strapi }) => {
 
     const src = mode === 'push' ? ensureTrailingSlash(settings.localMediaPath) : ensureTrailingSlash(settings.remoteMediaPath);
     const dst = mode === 'push' ? settings.remoteMediaPath : settings.localMediaPath;
-    args.push(src, dst);
+    // `--` ends option parsing so a path beginning with `-` can't be treated as
+    // an rsync flag. (spawn runs with shell:false, so shell metacharacters in
+    // paths are already inert.)
+    args.push('--', src, dst);
 
     return args;
   }

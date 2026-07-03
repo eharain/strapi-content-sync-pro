@@ -16,9 +16,11 @@ const contentApiRoutes = [
   { method: 'GET',  path: '/workflow-notifications/templates', handler: 'workflowNotifications.getTemplates', config: { policies: [] } },
   { method: 'POST', path: '/workflow-notifications/seed',      handler: 'workflowNotifications.seedTemplates', config: { policies: [] } },
 
-  // Media morph-link sync (called by the peer instance during runProfile)
+  // Media morph-link sync (called by the peer instance during runProfile).
+  // The mutating apply endpoint is HMAC-signed like /receive so a bare API
+  // token can't forge file↔entity links.
   { method: 'GET',  path: '/media-sync/morph-links',       handler: 'syncMedia.getMorphLinks',   config: { policies: [] } },
-  { method: 'POST', path: '/media-sync/morph-links/apply', handler: 'syncMedia.applyMorphLinks', config: { policies: [] } },
+  { method: 'POST', path: '/media-sync/morph-links/apply', handler: 'syncMedia.applyMorphLinks', config: { policies: [], middlewares: ['plugin::strapi-content-sync-pro.verifySignature'] } },
 ];
 
 const adminRoutes = [
