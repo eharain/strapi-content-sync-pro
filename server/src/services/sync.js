@@ -27,6 +27,31 @@ module.exports = ({ strapi }) => {
     await store.set({ key: LAST_SYNC_STORE_KEY, value: timestamps });
   }
 
+  const SCALAR_TYPES = new Set([
+    'string', 'text', 'richtext', 'blocks', 'integer', 'biginteger',
+    'float', 'decimal', 'boolean', 'date', 'datetime', 'time',
+    'email', 'password', 'enumeration', 'uid', 'json',
+  ]);
+
+  // Managed / reserved fields Strapi injects at runtime that are NOT valid in a
+  // REST `fields[]` selection (locale/localizations are separate query params;
+  // audit + timestamp fields are handled elsewhere).
+  const RESERVED_FIELDS = new Set([
+    'id', 'documentId', 'locale', 'localizations',
+    'createdAt', 'updatedAt', 'publishedAt', 'createdBy', 'updatedBy',
+  ]);
+
+  function isScalarSyncField(uid, field) {
+    if (RESERVED_FIELDS.has(field)) return false;
+    const a = strapi.contentTypes?.[uid]?.attributes?.[field];
+    return !!a && SCALAR_TYPES.has(a.type);
+  }
+
+  function allScalarFields(uid) {
+    const attrs = strapi.contentTypes?.[uid]?.attributes || {};
+    return Object.keys(attrs).filter((k) => isScalarSyncField(uid, k));
+  }
+
   function getOwnerRelationFieldSet(uid, allowedFields) {
     const contentType = strapi.contentTypes?.[uid];
     const attrs = contentType?.attributes || {};
@@ -45,21 +70,28 @@ module.exports = ({ strapi }) => {
   }
 
   function selectFieldsForPhase(uid, configuredFields, phase = 'all') {
-    const allowed = Array.isArray(configuredFields) ? configuredFields : [];
-    if (!uid) return allowed;
-    if (phase === 'all') return allowed;
+    const configured = Array.isArray(configuredFields) ? configuredFields : [];
+    if (!uid) return configured;
+    if (phase === 'all') return configured; // one_pass: [] means "all fields"
 
-    const ownerRelationFields = getOwnerRelationFieldSet(uid, allowed);
-    if (ownerRelationFields.size === 0) {
-      return phase === 'relations' ? ['documentId', 'syncId', 'updatedAt'] : allowed;
-    }
+    const ownerRelationFields = getOwnerRelationFieldSet(uid, configured);
 
     if (phase === 'relations') {
+      // Owner-side relations plus the keys needed to match records by identity.
       return ['documentId', 'syncId', 'updatedAt', ...ownerRelationFields];
     }
 
-    // entities phase: exclude owner-side relation fields
-    return allowed.filter((f) => !ownerRelationFields.has(f));
+    // Entities phase: SCALAR fields only. Relations, media, and components
+    // reference external records/files that may not exist on the target yet;
+    // sending them here causes "related document not found" failures. Owner
+    // relations are applied in the relations phase; files via media sync.
+    // An empty configured list means "all fields", which we resolve to the full
+    // scalar attribute set so relations are actually excluded (an empty array
+    // would otherwise be treated as "keep everything" downstream).
+    const base = configured.length
+      ? configured.filter((f) => isScalarSyncField(uid, f))
+      : allScalarFields(uid);
+    return base;
   }
 
   return {
@@ -659,7 +691,7 @@ module.exports = ({ strapi }) => {
      * Step 9 — Receive a record pushed from a remote instance.
      * Now supports field-level policies.
      */
-    async receiveRecord(uid, data, syncId, isDelete = false, documentId = null) {
+    async receiveRecord(uid, data, syncId, isDelete = false, documentId = null, published = undefined) {
       const logService = plugin().service('syncLog');
       const syncProfilesService = plugin().service('syncProfiles');
 
@@ -683,7 +715,7 @@ module.exports = ({ strapi }) => {
         const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
         const filteredData = syncProfilesService.filterFieldsByPolicy(data, fieldPolicies, 'pull');
 
-        await applyLocal(strapi, uid, { ...filteredData, documentId, syncId }, []);
+        await applyLocal(strapi, uid, { ...filteredData, documentId, syncId }, [], { published });
 
         await logService.log({
           action: 'receive',

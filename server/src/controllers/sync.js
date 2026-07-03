@@ -28,6 +28,7 @@ module.exports = {
         body.syncId || null,
         !!body.delete,
         body.documentId || null,
+        body.published,
       );
       ctx.body = { data: result };
     } catch (err) {

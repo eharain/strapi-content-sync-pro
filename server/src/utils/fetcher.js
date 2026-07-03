@@ -2,6 +2,45 @@
 
 const { paginate, DEFAULT_PAGE_SIZE, normalizePageSize } = require('./pagination');
 
+// Core managed fields that Strapi always accepts in a `fields` selection.
+const CORE_FIELDS = ['documentId', 'createdAt', 'updatedAt', 'publishedAt'];
+const SCALAR_TYPES = new Set([
+  'string', 'text', 'richtext', 'blocks', 'integer', 'biginteger',
+  'float', 'decimal', 'boolean', 'date', 'datetime', 'time',
+  'email', 'password', 'enumeration', 'uid', 'json',
+]);
+// Runtime-injected managed fields that are NOT valid in a REST `fields[]` query
+// (locale/localizations are separate params; audit fields are populate-only).
+const RESERVED_FIELDS = new Set(['locale', 'localizations', 'createdBy', 'updatedBy', 'id']);
+
+/**
+ * Translate a requested field list into a query-safe `fields` selection.
+ *
+ * Strapi rejects a whole request with 400 "Invalid key <x>" if `fields`
+ * contains a name that is not a real attribute (e.g. `syncId`, which no user
+ * schema actually defines). Relations/components/media must NOT go in `fields`
+ * either — they are returned via `populate: '*'`. So we keep only real scalar
+ * attributes plus the core managed fields, and include `syncId` only when the
+ * content type genuinely declares it.
+ */
+function scalarQueryFields(uid, fields) {
+  const attrs = global.strapi?.contentTypes?.[uid]?.attributes || {};
+  const out = new Set();
+  for (const f of fields || []) {
+    if (RESERVED_FIELDS.has(f)) continue;
+    if (CORE_FIELDS.includes(f)) { out.add(f); continue; }
+    const a = attrs[f];
+    if (a && SCALAR_TYPES.has(a.type)) out.add(f);
+    // else: relation/component/media/dynamiczone or unknown key → skip
+  }
+  // Always carry identity, ordering, and publish state.
+  out.add('documentId');
+  out.add('updatedAt');
+  out.add('publishedAt');
+  if (attrs.syncId) out.add('syncId');
+  return [...out];
+}
+
 /**
  * Fetch ONE page of local records from the Strapi document service.
  * Returns { records, hasMore, total }.
@@ -16,12 +55,21 @@ async function fetchLocalPage(strapi, uid, { fields, lastSyncAt, page = 1, pageS
     populate: '*',
   };
 
+  // For Draft & Publish types the document service defaults to the DRAFT
+  // version (publishedAt = null), whereas the remote REST API returns the
+  // PUBLISHED version. Request published here so both sides carry an accurate
+  // `publishedAt` and the sync mirrors live content rather than drafts.
+  const dp = !!(strapi.contentTypes?.[uid]?.options?.draftAndPublish);
+  if (dp) {
+    params.status = 'published';
+  }
+
   if (lastSyncAt) {
     params.filters = { updatedAt: { $gt: lastSyncAt } };
   }
 
   if (fields && fields.length > 0) {
-    params.fields = [...new Set([...fields, 'documentId', 'syncId', 'updatedAt'])];
+    params.fields = scalarQueryFields(uid, fields);
   }
 
   const records = (await strapi.documents(uid).findMany(params)) || [];
@@ -39,7 +87,7 @@ async function fetchRemotePage(remoteConfig, uid, { fields, lastSyncAt, page = 1
   const url = new URL(`/api/${pluralName}`, baseUrl);
 
   if (fields && fields.length > 0) {
-    const allFields = [...new Set([...fields, 'documentId', 'syncId', 'updatedAt'])];
+    const allFields = scalarQueryFields(uid, fields);
     allFields.forEach((f, i) => {
       url.searchParams.set(`fields[${i}]`, f);
     });
