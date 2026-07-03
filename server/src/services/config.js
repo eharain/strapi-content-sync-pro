@@ -2,12 +2,23 @@
 
 const crypto = require('crypto');
 
+// Preferred secret encryption backend. Optional at runtime: if the package
+// isn't resolvable we fall back to the built-in AES-256-GCM below, so the
+// plugin still works with zero extra setup.
+let SecureKeystore = null;
+try {
+  SecureKeystore = require('secure-keystore-js');
+} catch (_) {
+  SecureKeystore = null;
+}
+
 const STORE_KEY = 'remote-server-config';
 
 const SENSITIVE_FIELDS = ['apiToken', 'sharedSecret'];
 const VALID_SYNC_MODES = ['paired', 'single_side'];
 const MASK = '••••••••';
-const ENC_PREFIX = 'enc:v1:';
+const ENC_PREFIX = 'enc:v1:';    // built-in AES-256-GCM fallback marker
+const KEYSTORE_PREFIX = 'skv1:'; // secure-keystore-js value marker
 
 module.exports = ({ strapi }) => {
   function getStore() {
@@ -17,18 +28,32 @@ module.exports = ({ strapi }) => {
     });
   }
 
-  // Encryption key derived from the app's secret keys. If those change the
-  // stored secrets can no longer be decrypted (they'll read back as ciphertext
-  // and fail auth visibly), which is acceptable and far safer than plaintext.
-  function getKey() {
+  // Secret used to derive the encryption key, from the app's secret keys. If
+  // those change the stored secrets can no longer be decrypted (they read back
+  // as ciphertext and fail auth visibly), which is safer than plaintext.
+  function getUserKey() {
     const keys = strapi.config.get('server.app.keys');
-    const secret = (Array.isArray(keys) ? keys.join(',') : String(keys || '')) || 'strapi-content-sync-pro';
-    return crypto.createHash('sha256').update(secret).digest();
+    return (Array.isArray(keys) ? keys.join(',') : String(keys || '')) || 'strapi-content-sync-pro';
+  }
+
+  function getKey() {
+    return crypto.createHash('sha256').update(getUserKey()).digest();
   }
 
   function encrypt(plain) {
     if (plain == null || plain === '') return plain;
-    if (typeof plain === 'string' && plain.startsWith(ENC_PREFIX)) return plain; // already encrypted
+    if (typeof plain === 'string' && (plain.startsWith(ENC_PREFIX) || plain.startsWith(KEYSTORE_PREFIX))) {
+      return plain; // already encrypted
+    }
+    // Preferred: secure-keystore-js (PBKDF2 + AES-256-GCM, per-value salt).
+    if (SecureKeystore?.encryptValue) {
+      try {
+        return SecureKeystore.encryptValue(String(plain), getUserKey());
+      } catch (_) {
+        // fall through to built-in
+      }
+    }
+    // Built-in fallback.
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', getKey(), iv);
     const enc = Buffer.concat([cipher.update(String(plain), 'utf8'), cipher.final()]);
@@ -37,18 +62,29 @@ module.exports = ({ strapi }) => {
   }
 
   function decrypt(val) {
-    if (typeof val !== 'string' || !val.startsWith(ENC_PREFIX)) return val; // legacy plaintext
-    try {
-      const raw = Buffer.from(val.slice(ENC_PREFIX.length), 'base64');
-      const iv = raw.subarray(0, 12);
-      const tag = raw.subarray(12, 28);
-      const data = raw.subarray(28);
-      const decipher = crypto.createDecipheriv('aes-256-gcm', getKey(), iv);
-      decipher.setAuthTag(tag);
-      return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
-    } catch {
+    if (typeof val !== 'string') return val;
+    // secure-keystore-js token
+    if (val.startsWith(KEYSTORE_PREFIX)) {
+      if (SecureKeystore?.decryptValue) {
+        try { return SecureKeystore.decryptValue(val, getUserKey()); } catch { return val; }
+      }
       return val;
     }
+    // built-in AES-256-GCM token
+    if (val.startsWith(ENC_PREFIX)) {
+      try {
+        const raw = Buffer.from(val.slice(ENC_PREFIX.length), 'base64');
+        const iv = raw.subarray(0, 12);
+        const tag = raw.subarray(12, 28);
+        const data = raw.subarray(28);
+        const decipher = crypto.createDecipheriv('aes-256-gcm', getKey(), iv);
+        decipher.setAuthTag(tag);
+        return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+      } catch {
+        return val;
+      }
+    }
+    return val; // legacy plaintext
   }
 
   return {
