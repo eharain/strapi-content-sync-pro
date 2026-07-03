@@ -21,7 +21,12 @@ import { useFetchClient } from '@strapi/strapi/admin';
 
 const PLUGIN_ID = 'strapi-content-sync-pro';
 
-const ConfigTab = () => {
+// `only` optionally restricts which sub-sections render, so this same component
+// can power the split "Connection" and "Advanced" screens in the new IA.
+//   only = ['connection']              -> Connection screen
+//   only = ['enforcement','alerts']    -> Advanced screen
+//   only = null (default)              -> all three (backward compatible)
+const ConfigTab = ({ only = null } = {}) => {
     const { get, post, put } = useFetchClient();
 
     // Connection config
@@ -365,12 +370,21 @@ const ConfigTab = () => {
 
     if (loading) return <Typography>Loading…</Typography>;
 
+    const show = (v) => !only || only.includes(v);
+    const defaultTab = only ? only[0] : 'connection';
+    const isConnectionOnly = only && only.length === 1 && only[0] === 'connection';
+    const head = !only
+        ? { title: 'Configuration', subtitle: 'Configure connection, enforcement policies, and alert notifications.' }
+        : isConnectionOnly
+            ? { title: 'Connection', subtitle: 'Connect to your remote Strapi server.' }
+            : { title: 'Advanced', subtitle: 'Enforcement policies and alert notifications for sync runs.' };
+
     return (
         <Box>
-            <Typography variant="beta" tag="h2">Configuration</Typography>
+            <Typography variant="beta" tag="h2">{head.title}</Typography>
             <Box paddingTop={2} paddingBottom={4}>
                 <Typography variant="omega" textColor="neutral600">
-                    Configure connection, enforcement policies, and alert notifications.
+                    {head.subtitle}
                 </Typography>
             </Box>
 
@@ -382,11 +396,11 @@ const ConfigTab = () => {
                 </Box>
             )}
 
-            <Tabs.Root defaultValue="connection">
-                <Tabs.List>
-                    <Tabs.Trigger value="connection">Connection</Tabs.Trigger>
-                    <Tabs.Trigger value="enforcement">Enforcement</Tabs.Trigger>
-                    <Tabs.Trigger value="alerts">Alerts</Tabs.Trigger>
+            <Tabs.Root defaultValue={defaultTab}>
+                <Tabs.List style={only && only.length === 1 ? { display: 'none' } : undefined}>
+                    {show('connection') && <Tabs.Trigger value="connection">Connection</Tabs.Trigger>}
+                    {show('enforcement') && <Tabs.Trigger value="enforcement">Enforcement</Tabs.Trigger>}
+                    {show('alerts') && <Tabs.Trigger value="alerts">Alerts</Tabs.Trigger>}
                 </Tabs.List>
 
                 <Box paddingTop={4}>
