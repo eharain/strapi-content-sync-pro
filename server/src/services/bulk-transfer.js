@@ -302,12 +302,28 @@ module.exports = ({ strapi }) => {
       hasMore = !!res.hasMore;
     }
 
+    // All pages transferred — the per-page comparator can't detect deletions,
+    // so reconcile the full documentId set now (only when the toggle is on).
+    if (job.syncDeletions) {
+      try {
+        const del = await syncService.reconcileDeletions(chunk.uid, { direction: job.direction });
+        chunk.deletedRemote = (chunk.deletedRemote || 0) + del.deletedRemote;
+        chunk.deletedLocal = (chunk.deletedLocal || 0) + del.deletedLocal;
+        chunk.errors += del.errors;
+      } catch (err) {
+        chunk.errors += 1;
+        chunk.deletionError = err.message;
+      }
+    }
+
     return {
       page: chunk.page,
       pagesTotal: chunk.pagesTotal,
       pushed: chunk.pushed,
       pulled: chunk.pulled,
       errors: chunk.errors,
+      deletedRemote: chunk.deletedRemote || 0,
+      deletedLocal: chunk.deletedLocal || 0,
     };
   }
 

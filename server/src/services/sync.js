@@ -1,10 +1,11 @@
 'use strict';
 
-const { fetchLocalRecords, fetchRemoteRecords, fetchLocalPage, fetchRemotePage } = require('../utils/fetcher');
+const { fetchLocalRecords, fetchRemoteRecords, fetchLocalPage, fetchRemotePage, fetchAllLocalIds, fetchAllRemoteIds } = require('../utils/fetcher');
 const { compareRecords } = require('../utils/comparator');
 const { applyLocal, applyRemote, deleteLocal, deleteRemote } = require('../utils/applier');
 
 const LAST_SYNC_STORE_KEY = 'last-sync-timestamps';
+const SYNCED_IDS_STORE_PREFIX = 'synced-ids:';
 
 module.exports = ({ strapi }) => {
   function getStore() {
@@ -25,6 +26,89 @@ module.exports = ({ strapi }) => {
     const timestamps = await getLastSyncTimestamps();
     timestamps[uid] = timestamp;
     await store.set({ key: LAST_SYNC_STORE_KEY, value: timestamps });
+  }
+
+  /**
+   * Snapshot-based deletion reconciliation.
+   *
+   * A record can only be *deleted* on one side if it was previously synced and
+   * is now gone. We persist the set of documentIds that existed at the end of
+   * the last sync ("snapshot"); a documentId that is in the snapshot but now
+   * absent on exactly one side was deleted there, so we propagate the delete to
+   * the other side (respecting direction). Records that are NOT in the snapshot
+   * are never deleted — that removes the create-vs-delete ambiguity that makes
+   * naive bidirectional deletion unsafe. Existence is checked with draft status
+   * so unpublishing is never mistaken for deletion.
+   */
+  async function reconcileDeletions(uid, { direction, remoteConfig }) {
+    const logService = plugin().service('syncLog');
+    const store = getStore();
+    const snapKey = `${SYNCED_IDS_STORE_PREFIX}${uid}`;
+    const prevIds = new Set((await store.get({ key: snapKey })) || []);
+
+    const [localIds, remoteIds] = await Promise.all([
+      fetchAllLocalIds(strapi, uid),
+      fetchAllRemoteIds(remoteConfig, uid),
+    ]);
+
+    let deletedRemote = 0;
+    let deletedLocal = 0;
+    let errors = 0;
+    const deleted = new Set();
+
+    // First run (no snapshot): just record the baseline, delete nothing.
+    if (prevIds.size > 0) {
+      for (const id of prevIds) {
+        const onLocal = localIds.has(id);
+        const onRemote = remoteIds.has(id);
+        if (onLocal === onRemote) continue; // present or absent on both → not a one-sided delete
+
+        if (!onLocal && onRemote && (direction === 'push' || direction === 'both')) {
+          try {
+            await deleteRemote(remoteConfig, uid, { documentId: id });
+            deleted.add(id); deletedRemote++;
+            await logService.log({ action: 'delete_remote', contentType: uid, syncId: id, direction: 'push', status: 'success', message: `Reconciled delete → remote ${id}` });
+          } catch (err) {
+            errors++;
+            await logService.log({ action: 'delete_remote', contentType: uid, syncId: id, direction: 'push', status: 'error', message: err.message });
+          }
+        } else if (onLocal && !onRemote && (direction === 'pull' || direction === 'both')) {
+          try {
+            await deleteLocal(strapi, uid, { documentId: id });
+            deleted.add(id); deletedLocal++;
+            await logService.log({ action: 'delete_local', contentType: uid, syncId: id, direction: 'pull', status: 'success', message: `Reconciled delete → local ${id}` });
+          } catch (err) {
+            errors++;
+            await logService.log({ action: 'delete_local', contentType: uid, syncId: id, direction: 'pull', status: 'error', message: err.message });
+          }
+        }
+      }
+    }
+
+    // New snapshot = everything that currently exists on either side, minus what
+    // we just deleted.
+    const union = [...new Set([...localIds, ...remoteIds])].filter((id) => !deleted.has(id));
+    await store.set({ key: snapKey, value: union });
+
+    return { deletedRemote, deletedLocal, errors };
+  }
+
+  /**
+   * Emit an alert when a sync error looks like a remote auth failure (expired /
+   * revoked API token or missing permission), so the operator is notified
+   * instead of sync silently failing. Throttled by the alerts service.
+   */
+  async function maybeAlertAuthFailure(uid, err) {
+    const msg = err?.message || '';
+    if (!/(\b401\b|\b403\b|unauthorized|invalid credentials|forbidden)/i.test(msg)) return;
+    try {
+      await plugin().service('alerts').sendAlert('sync_failure', {
+        contentType: uid,
+        error: `Remote authentication failed (token may be expired or lack access): ${msg}`.slice(0, 300),
+      });
+    } catch (_) {
+      // alerts are best-effort
+    }
   }
 
   const SCALAR_TYPES = new Set([
@@ -96,9 +180,24 @@ module.exports = ({ strapi }) => {
 
   return {
     /**
+     * Public wrapper for snapshot-based deletion reconciliation. Resolves the
+     * remote config and runs a full-set delete pass for one content type.
+     * Used by the bulk-transfer engine after a content type has finished
+     * (its page loop cannot detect deletions on its own).
+     */
+    async reconcileDeletions(uid, { direction = 'both' } = {}) {
+      const configService = plugin().service('config');
+      const remoteConfig = await configService.getConfig({ safe: false });
+      if (!remoteConfig || !remoteConfig.baseUrl) {
+        throw new Error('Remote server not configured');
+      }
+      return reconcileDeletions(uid, { direction, remoteConfig });
+    },
+
+    /**
      * Step 6 + 7 + 10 — Execute a manual / incremental sync for every
      * enabled content type.
-     * 
+     *
      * Now supports field-level policies from Sync Profiles.
      */
     async syncNow() {
@@ -211,7 +310,7 @@ module.exports = ({ strapi }) => {
               const diff = compareRecords(localRecords, remoteRecords, {
                 direction,
                 conflictStrategy,
-                syncDeletions: phase === 'relations' ? false : syncDeletions,
+                syncDeletions: false, // deletions handled by reconcileDeletions
               });
 
               // Apply field policies to records before pushing/pulling
@@ -283,9 +382,15 @@ module.exports = ({ strapi }) => {
               }
             }
 
+            let deletions = null;
+            if (syncDeletions) {
+              deletions = await reconcileDeletions(uid, { direction, remoteConfig });
+              errors += deletions.errors;
+            }
+
             await setLastSyncTimestamp(uid, syncStartTime);
 
-            const summary = { uid, pushed, pulled, errors, hasFieldPolicies: !!fieldPolicies, executionStrategy };
+            const summary = { uid, pushed, pulled, errors, hasFieldPolicies: !!fieldPolicies, executionStrategy, deletions };
             results.push(summary);
 
             await logService.log({
@@ -298,6 +403,7 @@ module.exports = ({ strapi }) => {
             });
           } catch (err) {
             results.push({ uid, error: err.message });
+            await maybeAlertAuthFailure(uid, err);
             await logService.log({
               action: 'sync_error',
               contentType: uid,
@@ -468,6 +574,12 @@ module.exports = ({ strapi }) => {
           }
         }
 
+        let deletions = null;
+        if (syncDeletions) {
+          deletions = await reconcileDeletions(uid, { direction, remoteConfig });
+          errors += deletions.errors;
+        }
+
         await setLastSyncTimestamp(uid, syncStartTime);
 
         const summary = {
@@ -477,6 +589,7 @@ module.exports = ({ strapi }) => {
           errors,
           hasFieldPolicies: !!fieldPolicies,
           executionStrategy,
+          deletions,
           profile: profile ? { id: profile.id, name: profile.name } : null,
         };
 
@@ -491,6 +604,7 @@ module.exports = ({ strapi }) => {
 
         return { syncedAt: new Date().toISOString(), ...summary };
       } catch (err) {
+        await maybeAlertAuthFailure(uid, err);
         await logService.log({
           action: 'sync_error',
           contentType: uid,

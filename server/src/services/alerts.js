@@ -160,10 +160,10 @@ module.exports = ({ strapi }) => {
     /**
      * Check if alerts are being throttled
      */
-    isThrottled() {
+    isThrottled(maxPerHour = 10) {
       const oneHourAgo = Date.now() - 3600000;
       alertHistory = alertHistory.filter(ts => ts > oneHourAgo);
-      return alertHistory.length >= 10; // Default max
+      return alertHistory.length >= (Number(maxPerHour) || 10);
     },
 
     /**
@@ -177,15 +177,16 @@ module.exports = ({ strapi }) => {
      * Send an alert through configured channels
      */
     async sendAlert(eventType, data) {
-      const store = getStore();
-      const settings = await store.get({ key: STORE_KEY }) || DEFAULT_ALERT_SETTINGS;
+      // Use the merged settings (defaults applied) so a partial stored blob
+      // doesn't leave `enabled`/throttle undefined.
+      const settings = await this.getSettings();
 
       if (!settings.enabled) {
         return { sent: false, reason: 'Alerts disabled' };
       }
 
       // Check throttling
-      if (settings.throttle?.enabled && this.isThrottled()) {
+      if (settings.throttle?.enabled && this.isThrottled(settings.throttle.maxAlertsPerHour)) {
         strapi.log.warn('Alert throttled - too many alerts in the past hour');
         return { sent: false, reason: 'Throttled' };
       }
@@ -307,17 +308,36 @@ module.exports = ({ strapi }) => {
         data,
       };
 
-      const response = await fetch(webhookConfig.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...webhookConfig.headers,
-        },
-        body: JSON.stringify(payload),
-      });
+      // Basic guard: only http(s), and a hard timeout so a hung/misused webhook
+      // endpoint can't stall the sync run indefinitely.
+      let target;
+      try {
+        target = new URL(webhookConfig.url);
+      } catch {
+        throw new Error('Webhook URL is invalid');
+      }
+      if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+        throw new Error('Webhook URL must use http or https');
+      }
 
-      if (!response.ok) {
-        throw new Error(`Webhook failed with status ${response.status}`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(target.toString(), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...webhookConfig.headers,
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Webhook failed with status ${response.status}`);
+        }
+      } finally {
+        clearTimeout(timer);
       }
     },
 
