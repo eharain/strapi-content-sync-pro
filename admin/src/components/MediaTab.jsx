@@ -21,6 +21,8 @@ import {
 } from '@strapi/design-system';
 import { Pencil, Trash, Play, Check, Stop, CaretUp, CaretDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
+import { useParams, useNavigate } from 'react-router-dom';
+import { resolvePath } from '../nav';
 
 const PLUGIN_ID = 'strapi-content-sync-pro';
 
@@ -89,6 +91,12 @@ const EMPTY_PROFILE = {
 
 const MediaTab = () => {
   const { get, put, post, del } = useFetchClient();
+  // Deep-linking: /media/:profileId opens that media profile's editor and
+  // closing it returns to /media, keeping the URL in sync with the screen.
+  const { profileId } = useParams();
+  const navigate = useNavigate();
+  const goToMediaProfile = (id) => navigate(resolvePath(`media/${id}`));
+  const goToMediaList = () => navigate(resolvePath('media'));
   const [profiles, setProfiles] = useState([]);
   const [globalSettings, setGlobalSettings] = useState({});
   const [status, setStatus] = useState(null);
@@ -140,6 +148,23 @@ const MediaTab = () => {
 
   useEffect(() => { reload(); }, []);
 
+  // Close the editor, clearing the deep-link id from the URL if present.
+  const closeEdit = () => {
+    setEditProfile(null);
+    setEditMode(null);
+    if (profileId) goToMediaList();
+  };
+
+  // Open the editor for the media profile named in the URL, once profiles load.
+  useEffect(() => {
+    if (loading || !profileId) return;
+    const match = profiles.find((p) => String(p.id) === String(profileId));
+    if (match && String(editProfile?.id) !== String(profileId)) {
+      setEditProfile({ ...match });
+      setEditMode('edit');
+    }
+  }, [profiles, profileId, loading]);
+
   // Live status polling: while anything is running or paused, poll every 2s.
   useEffect(() => {
     const anyActive = (status?.profiles || []).some((p) => p.running || p.paused);
@@ -169,7 +194,7 @@ const MediaTab = () => {
         await put(`/${PLUGIN_ID}/media-sync/profiles/${editProfile.id}`, editProfile);
         setMessage({ type: 'success', text: 'Profile updated.' });
       }
-      setEditProfile(null); setEditMode(null);
+      closeEdit();
       await reload();
     } catch (err) {
       setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message });
@@ -478,7 +503,7 @@ const MediaTab = () => {
                           <Button variant="secondary" size="S" onClick={() => handleRunProfile(p.id)} startIcon={<Play />}>Run</Button>
                         );
                       })()}
-                      <IconButton label="Edit" onClick={() => { setEditProfile({ ...p }); setEditMode('edit'); }}><Pencil /></IconButton>
+                      <IconButton label="Edit" onClick={() => goToMediaProfile(p.id)}><Pencil /></IconButton>
                       <IconButton label="Delete" onClick={() => handleDelete(p.id)}><Trash /></IconButton>
                     </Flex>
                   </Flex>
@@ -635,7 +660,7 @@ const MediaTab = () => {
 
       {/* ── Profile Edit Dialog ────────────────────────────────────────── */}
       {editProfile && (
-        <Dialog.Root open onOpenChange={(open) => { if (!open) { setEditProfile(null); setEditMode(null); } }}>
+        <Dialog.Root open onOpenChange={(open) => { if (!open) closeEdit(); }}>
           <Dialog.Content style={{ maxWidth: 720, maxHeight: '90vh', overflow: 'auto' }}>
             <Dialog.Header>{editMode === 'create' ? 'Create Media Profile' : `Edit: ${ep.name}`}</Dialog.Header>
             <Dialog.Body>

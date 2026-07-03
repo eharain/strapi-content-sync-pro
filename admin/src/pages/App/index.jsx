@@ -28,7 +28,6 @@ const App = () => {
 
                 {/* Sync section */}
                 <Route path="sync" element={<SyncTab />} />
-                <Route path="sync/run/:runId" element={<SyncTab />} />
                 <Route path="sync/bulk" element={<BulkTransferTab />} />
 
                 {/* Configure section */}

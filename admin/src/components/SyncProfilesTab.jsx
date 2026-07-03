@@ -23,6 +23,8 @@ import {
 } from '@strapi/design-system';
 import { Pencil, Trash, Plus, Check, CaretUp, CaretDown } from '@strapi/icons';
 import { useFetchClient } from '@strapi/strapi/admin';
+import { useParams, useNavigate } from 'react-router-dom';
+import { resolvePath } from '../nav';
 
 const PLUGIN_ID = 'strapi-content-sync-pro';
 
@@ -58,6 +60,13 @@ const SIMPLE_PRESETS = [
 
 const SyncProfilesTab = () => {
   const { get, post, put, del } = useFetchClient();
+  // Deep-linking: /configure/profiles/:profileId opens that profile's editor,
+  // and closing the editor returns to /configure/profiles. This keeps the URL a
+  // faithful, shareable reflection of what's on screen.
+  const { profileId } = useParams();
+  const navigate = useNavigate();
+  const goToProfile = (id) => navigate(resolvePath(`configure/profiles/${id}`));
+  const goToProfileList = () => navigate(resolvePath('configure/profiles'));
 
   const [profiles, setProfiles] = useState([]);
   const [contentTypes, setContentTypes] = useState([]);
@@ -230,6 +239,17 @@ const SyncProfilesTab = () => {
     loadData();
   }, []);
 
+  // Open the editor for the profile named in the URL once profiles are loaded.
+  // Runs when the list or the :profileId param changes; the guard prevents it
+  // from re-opening after the user has closed the modal (param cleared).
+  useEffect(() => {
+    if (loading || !profileId) return;
+    const match = profiles.find((p) => String(p.id) === String(profileId));
+    if (match && String(editingProfile?.id) !== String(profileId)) {
+      openEditModal(match);
+    }
+  }, [profiles, profileId, loading]);
+
   const loadData = async () => {
     try {
       const [profilesRes, ctRes, scRes, configRes] = await Promise.all([
@@ -349,6 +369,14 @@ const SyncProfilesTab = () => {
     setModalOpen(true);
   };
 
+  // Close the editor and, if we arrived via a deep link, drop the id from the
+  // URL so it reflects the list again.
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditingProfile(null);
+    if (profileId) goToProfileList();
+  };
+
   const handlePresetSelect = (preset) => {
     setSelectedPreset(preset);
     const presetConfig = {
@@ -404,7 +432,7 @@ const SyncProfilesTab = () => {
         await post(`/${PLUGIN_ID}/sync-profiles`, payload);
         setMessage({ type: 'success', text: 'Profile created successfully' });
       }
-      setModalOpen(false);
+      closeModal();
       loadData();
     } catch (err) {
       setMessage({ type: 'danger', text: err.response?.data?.error?.message || 'Failed to save profile' });
@@ -649,7 +677,7 @@ const SyncProfilesTab = () => {
                           Activate
                         </Button>
                       )}
-                      <IconButton label="Edit" onClick={() => openEditModal(profile)}>
+                      <IconButton label="Edit" onClick={() => goToProfile(profile.id)}>
                         <Pencil />
                       </IconButton>
                       <IconButton label="Delete" onClick={() => handleDelete(profile.id)}>
@@ -666,7 +694,7 @@ const SyncProfilesTab = () => {
 
       {/* Create/Edit Modal */}
       {modalOpen && (
-        <Modal.Root open={modalOpen} onOpenChange={setModalOpen}>
+        <Modal.Root open={modalOpen} onOpenChange={(open) => (open ? setModalOpen(true) : closeModal())}>
           <Modal.Content>
             <Modal.Header>
               <Modal.Title>
