@@ -196,7 +196,7 @@ module.exports = ({ strapi }) => {
       }
 
       const parseVersion = (v) => {
-        const match = v.match(/^(\d+)\.(\d+)\.(\d+)/);
+        const match = typeof v === 'string' ? v.match(/^(\d+)\.(\d+)\.(\d+)/) : null;
         if (!match) return null;
         return {
           major: parseInt(match[1], 10),
@@ -254,6 +254,15 @@ module.exports = ({ strapi }) => {
       const remoteDate = new Date(remoteTime);
       const drift = Math.abs(localDate.getTime() - remoteDate.getTime());
 
+      if (Number.isNaN(drift)) {
+        return {
+          compatible: false,
+          drift: null,
+          maxAllowed: maxDriftMs,
+          message: `Unable to determine time drift (local=${localTime}, remote=${remoteTime})`,
+        };
+      }
+
       return {
         compatible: drift <= maxDriftMs,
         drift,
@@ -280,8 +289,8 @@ module.exports = ({ strapi }) => {
       if (settings.enforceVersionCheck) {
         const localVersion = this.getLocalVersionInfo();
         const versionCheck = this.compareVersions(
-          localVersion.strapi,
-          remoteInfo.strapi || 'unknown',
+          localVersion.strapiVersion,
+          remoteInfo.strapiVersion || remoteInfo.strapi || 'unknown',
           settings.allowedVersionDrift
         );
 
@@ -323,7 +332,7 @@ module.exports = ({ strapi }) => {
       // Time sync check
       if (settings.enforceDateTimeSync) {
         const localTime = new Date().toISOString();
-        const timeCheck = this.checkTimeSync(localTime, remoteInfo.timestamp, settings.maxTimeDriftMs);
+        const timeCheck = this.checkTimeSync(localTime, remoteInfo.serverTime || remoteInfo.timestamp, settings.maxTimeDriftMs);
 
         results.checks.push({
           name: 'timeSync',

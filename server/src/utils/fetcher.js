@@ -194,6 +194,67 @@ function uidToPluralEndpoint(uid) {
   return modelName + 's';
 }
 
+/**
+ * Fetch the full set of local documentIds for a content type (existence set).
+ *
+ * Uses the draft status so EVERY document is counted regardless of publish
+ * state — unpublishing must never be mistaken for deletion. Returns a Set.
+ */
+async function fetchAllLocalIds(strapi, uid, { pageSize = DEFAULT_PAGE_SIZE } = {}) {
+  const size = normalizePageSize(pageSize);
+  const dp = !!(strapi.contentTypes?.[uid]?.options?.draftAndPublish);
+  const ids = new Set();
+  for (let page = 1; ; page++) {
+    const params = {
+      start: (page - 1) * size,
+      limit: size,
+      fields: ['documentId'],
+      sort: 'documentId:asc',
+    };
+    if (dp) params.status = 'draft'; // draft version exists for every document
+    const recs = (await strapi.documents(uid).findMany(params)) || [];
+    for (const r of recs) if (r?.documentId) ids.add(r.documentId);
+    if (recs.length < size) break;
+  }
+  return ids;
+}
+
+/**
+ * Fetch the full set of remote documentIds via REST (existence set).
+ * Uses `status=draft` so every document is counted regardless of publish state.
+ */
+async function fetchAllRemoteIds(remoteConfig, uid, { pageSize = DEFAULT_PAGE_SIZE } = {}) {
+  const size = normalizePageSize(pageSize);
+  const { baseUrl, apiToken } = remoteConfig;
+  const pluralName = uidToPluralEndpoint(uid);
+  const ids = new Set();
+  const dp = !!(global.strapi?.contentTypes?.[uid]?.options?.draftAndPublish);
+
+  for (let page = 1; ; page++) {
+    const url = new URL(`/api/${pluralName}`, baseUrl);
+    url.searchParams.set('fields[0]', 'documentId');
+    url.searchParams.set('pagination[page]', String(page));
+    url.searchParams.set('pagination[pageSize]', String(size));
+    url.searchParams.set('sort', 'documentId:asc');
+    if (dp) url.searchParams.set('status', 'draft');
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Remote id fetch failed for ${uid}: ${response.status} – ${text}`);
+    }
+    const json = await response.json();
+    const recs = json.data || [];
+    for (const r of recs) if (r?.documentId) ids.add(r.documentId);
+    const pageCount = json.meta?.pagination?.pageCount;
+    if (pageCount ? page >= pageCount : recs.length < size) break;
+  }
+  return ids;
+}
+
 module.exports = {
   fetchLocalRecords,
   fetchRemoteRecords,
@@ -201,6 +262,8 @@ module.exports = {
   fetchRemotePage,
   iterateLocalPages,
   iterateRemotePages,
+  fetchAllLocalIds,
+  fetchAllRemoteIds,
   uidToPluralEndpoint,
 };
 
