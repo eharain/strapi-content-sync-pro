@@ -15,6 +15,7 @@ const workflowNotifications = require('./workflow-notifications');
 const dependencies = require('./dependencies');
 const syncStats = require('./sync-stats');
 const bulkTransfer = require('./bulk-transfer');
+const userSync = require('./user-sync');
 
 module.exports = {
   ping,
@@ -32,4 +33,5 @@ module.exports = {
   dependencies,
   syncStats,
   bulkTransfer,
+  userSync,
 };

@@ -21,6 +21,12 @@ const contentApiRoutes = [
   // token can't forge file↔entity links.
   { method: 'GET',  path: '/media-sync/morph-links',       handler: 'syncMedia.getMorphLinks',   config: { policies: [] } },
   { method: 'POST', path: '/media-sync/morph-links/apply', handler: 'syncMedia.applyMorphLinks', config: { policies: [], middlewares: ['plugin::strapi-content-sync-pro.verifySignature'] } },
+
+  // User sync (called by the peer). Both are HMAC-signed: export returns
+  // password hashes, import upserts users — neither should be reachable with a
+  // bare API token.
+  { method: 'POST', path: '/users/export', handler: 'userSync.export', config: { policies: [], auth: false, middlewares: ['plugin::strapi-content-sync-pro.verifySignature'] } },
+  { method: 'POST', path: '/users/import', handler: 'userSync.import', config: { policies: [], auth: false, middlewares: ['plugin::strapi-content-sync-pro.verifySignature'] } },
 ];
 
 const adminRoutes = [
@@ -39,6 +45,9 @@ const adminRoutes = [
 
   // Manual sync trigger
   { method: 'POST', path: '/sync-now', handler: 'sync.syncNow', config: { policies: [] } },
+
+  // User sync trigger (admin)
+  { method: 'POST', path: '/users/sync', handler: 'userSync.sync', config: { policies: [] } },
 
   // Logs
   { method: 'GET', path: '/logs', handler: 'syncLog.find', config: { policies: [] } },
