@@ -300,6 +300,10 @@ module.exports = ({ strapi }) => {
       }
       chunk.lastPageAt = now();
       hasMore = !!res.hasMore;
+
+      // Persist after every page so a crash mid-chunk resumes from the last
+      // completed page rather than rewinding to the start of the chunk.
+      await persistJobToHistory(job);
     }
 
     // All pages transferred — the per-page comparator can't detect deletions,
