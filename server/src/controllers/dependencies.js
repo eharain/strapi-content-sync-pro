@@ -1,6 +1,20 @@
 'use strict';
 
+const { DEPENDENCY_DEPTH } = require('../utils/strategy');
+
 const PLUGIN_ID = 'strapi-content-sync-pro';
+
+/**
+ * The set of content types currently in sync scope. Dependency expansion is
+ * in-scope only, so every read endpoint filters through this unless the caller
+ * explicitly asks for the unscoped view (`?scope=all`) to see what enabling
+ * more types would make available.
+ */
+async function scopeFor(strapi, ctx) {
+  if ((ctx.query.scope || 'enabled') === 'all') return new Set();
+  const config = await strapi.plugin(PLUGIN_ID).service('syncConfig').getSyncConfig();
+  return new Set((config.contentTypes || []).filter((ct) => ct.enabled).map((ct) => ct.uid));
+}
 
 module.exports = ({ strapi }) => ({
   /**
@@ -51,14 +65,17 @@ module.exports = ({ strapi }) => ({
 
   /**
    * GET /dependencies/:uid/graph
-   * Get dependency graph for a content type
+   * Direct (depth-1, owner-side) dependency graph for a content type.
+   * A `depth` query parameter is accepted for back-compat and ignored — depth
+   * is fixed by the strategy contract.
    */
   async getGraph(ctx) {
     const { uid } = ctx.params;
-    const depth = parseInt(ctx.query.depth, 10) || 1;
     try {
-      const graph = strapi.plugin(PLUGIN_ID).service('dependencyResolver').buildDependencyGraph(uid, depth);
-      ctx.body = { data: graph };
+      const scope = await scopeFor(strapi, ctx);
+      const graph = strapi.plugin(PLUGIN_ID).service('dependencyResolver')
+        .buildDependencyGraph(uid, DEPENDENCY_DEPTH, scope);
+      ctx.body = { data: graph, meta: { depth: DEPENDENCY_DEPTH, depthFixed: true } };
     } catch (err) {
       ctx.throw(400, err.message);
     }
@@ -70,10 +87,11 @@ module.exports = ({ strapi }) => ({
    */
   async getSyncOrder(ctx) {
     const { uid } = ctx.params;
-    const depth = parseInt(ctx.query.depth, 10) || 1;
     try {
-      const order = strapi.plugin(PLUGIN_ID).service('dependencyResolver').getSyncOrder(uid, depth);
-      ctx.body = { data: order };
+      const scope = await scopeFor(strapi, ctx);
+      const order = strapi.plugin(PLUGIN_ID).service('dependencyResolver')
+        .getSyncOrder(uid, DEPENDENCY_DEPTH, scope);
+      ctx.body = { data: order, meta: { depth: DEPENDENCY_DEPTH, depthFixed: true } };
     } catch (err) {
       ctx.throw(400, err.message);
     }
@@ -81,13 +99,14 @@ module.exports = ({ strapi }) => ({
 
   /**
    * GET /dependencies/:uid/summary
-   * Get dependency summary for UI
+   * Get dependency summary for UI, including what the constraints excluded.
    */
   async getSummary(ctx) {
     const { uid } = ctx.params;
-    const depth = parseInt(ctx.query.depth, 10) || 1;
     try {
-      const summary = strapi.plugin(PLUGIN_ID).service('dependencyResolver').getDependencySummary(uid, depth);
+      const scope = await scopeFor(strapi, ctx);
+      const summary = strapi.plugin(PLUGIN_ID).service('dependencyResolver')
+        .getDependencySummary(uid, DEPENDENCY_DEPTH, scope);
       ctx.body = { data: summary };
     } catch (err) {
       ctx.throw(400, err.message);

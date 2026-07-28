@@ -26,6 +26,7 @@ const { spawn } = require('node:child_process');
 const { pipeline } = require('node:stream/promises');
 const { Readable } = require('node:stream');
 const { generateSignature } = require('../utils/hmac');
+const { MEDIA_PHASE_CORE, MEDIA_PHASE_LINKS } = require('../utils/strategy');
 
 const PROFILES_KEY = 'media-sync-profiles';
 const GLOBAL_SETTINGS_KEY = 'media-sync-global-settings';
@@ -697,6 +698,398 @@ module.exports = ({ strapi }) => {
   }
 
   // ---------------------------------------------------------------------------
+  // Owner-side entity → file links (pass 2 of the media strategy)
+  // ---------------------------------------------------------------------------
+  // Media is a referenced target, never the relation driver: a file↔entity link
+  // is exported and applied from the OWNING content type's media field, in one
+  // direction. That replaces the old morph-table traversal, which wrote the same
+  // link from the file side as well and made link state order-dependent.
+  //
+  // Link shape (one row per entity, all of its media fields together):
+  //   { uid, documentId, fields: { cover: [fileRef], gallery: [fileRef, …] } }
+  // where fileRef = { documentId, name, ext, size } — `documentId` is exact but
+  // a URL-synced file is re-uploaded on the peer and gets a fresh one, so
+  // name+ext+size is carried as the stable fallback identity.
+
+  /**
+   * Content types whose media links participate in a run: in-scope (enabled for
+   * sync, or explicitly passed) api:: types that actually declare media fields.
+   */
+  async function resolveMediaLinkScope(scopeUids = []) {
+    const dependencyResolver = plugin().service('dependencyResolver');
+
+    let candidates = Array.isArray(scopeUids) ? scopeUids.filter(Boolean) : [];
+    if (candidates.length === 0) {
+      // No explicit scope — fall back to the content types enabled for sync.
+      try {
+        const syncConfig = await plugin().service('syncConfig').getSyncConfig();
+        candidates = (syncConfig.contentTypes || []).filter((ct) => ct.enabled).map((ct) => ct.uid);
+      } catch {
+        candidates = [];
+      }
+    }
+    if (candidates.length === 0) {
+      candidates = Object.keys(strapi.contentTypes || {}).filter((uid) => uid.startsWith('api::'));
+    }
+
+    const out = [];
+    const seen = new Set();
+    for (const uid of candidates) {
+      if (seen.has(uid)) continue;
+      seen.add(uid);
+      if (!strapi.contentTypes?.[uid]) continue;
+      const mediaFields = dependencyResolver.getMediaFields(uid);
+      if (mediaFields.length === 0) continue;
+      out.push({ uid, mediaFields });
+    }
+    return out;
+  }
+
+  function fileRef(file) {
+    if (!file || typeof file !== 'object') return null;
+    if (!file.documentId && !file.name) return null;
+    return {
+      documentId: file.documentId || null,
+      name: file.name || null,
+      ext: file.ext || null,
+      size: file.size != null ? file.size : null,
+    };
+  }
+
+  function fileRefsFrom(value) {
+    if (value == null) return [];
+    if (Array.isArray(value)) return value.map(fileRef).filter(Boolean);
+    const single = fileRef(value);
+    return single ? [single] : [];
+  }
+
+  /**
+   * Export one page of owner-side media links for a single content type.
+   * Entities with no media attached are included with empty field lists so a
+   * removal on the source propagates as a removal on the target.
+   */
+  async function exportEntityMediaLinks({ uid, page = 1, pageSize = 100 } = {}) {
+    if (!uid) throw new Error('uid is required');
+    const scope = await resolveMediaLinkScope([uid]);
+    const entry = scope.find((s) => s.uid === uid);
+    if (!entry) return { uid, page, pageSize, links: [], hasMore: false };
+
+    const fieldNames = entry.mediaFields.map((f) => f.field);
+    const size = Math.max(1, Math.min(Number(pageSize) || 100, 500));
+    const p = Math.max(1, Number(page) || 1);
+    const dp = !!(strapi.contentTypes?.[uid]?.options?.draftAndPublish);
+
+    const params = {
+      start: (p - 1) * size,
+      limit: size,
+      fields: ['documentId'],
+      populate: fieldNames,
+      sort: 'documentId:asc',
+    };
+    // Mirror the entities pass, which syncs the published version.
+    if (dp) params.status = 'published';
+
+    const records = (await strapi.documents(uid).findMany(params)) || [];
+
+    const links = records
+      .filter((r) => r?.documentId)
+      .map((record) => {
+        const fields = {};
+        for (const { field, multiple } of entry.mediaFields) {
+          fields[field] = { multiple: !!multiple, files: fileRefsFrom(record[field]) };
+        }
+        return { uid, documentId: record.documentId, fields };
+      });
+
+    return { uid, page: p, pageSize: size, links, hasMore: records.length === size };
+  }
+
+  /**
+   * Resolve a remote file reference to a local upload row.
+   * documentId is exact; name+ext+size is the stable cross-instance fallback
+   * because a URL-synced file is re-uploaded and gets a fresh documentId.
+   */
+  async function resolveLocalFile(ref, cache) {
+    const cacheKey = ref.documentId || `${ref.name}|${ref.ext}|${ref.size}`;
+    if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+    let file = null;
+    if (ref.documentId) {
+      file = await strapi.db.query('plugin::upload.file').findOne({
+        where: { documentId: ref.documentId },
+        select: ['id', 'documentId'],
+      });
+    }
+    if (!file?.id && ref.name) {
+      const where = { name: ref.name };
+      if (ref.ext != null) where.ext = ref.ext;
+      if (ref.size != null) where.size = ref.size;
+      file = await strapi.db.query('plugin::upload.file').findOne({ where, select: ['id', 'documentId'] });
+    }
+    if (!file?.id && ref.name) {
+      // Last resort: name only. Size can legitimately differ when the peer's
+      // upload provider re-encodes on ingest.
+      file = await strapi.db.query('plugin::upload.file').findOne({
+        where: { name: ref.name },
+        select: ['id', 'documentId'],
+      });
+    }
+
+    cache.set(cacheKey, file || null);
+    return file || null;
+  }
+
+  /**
+   * Apply owner-side media links locally.
+   *
+   * Safety rule: a field whose source list is non-empty but resolves to NO
+   * local file is left untouched rather than cleared — that state means the
+   * files have not been synced yet (pass 1 incomplete), not that the link was
+   * removed. An empty source list IS applied, so real removals propagate.
+   */
+  async function applyEntityMediaLinks(links = []) {
+    const { markAsRemoteUpdate } = require('../utils/sync-guard');
+    const fileCache = new Map();
+
+    let applied = 0;
+    let unchanged = 0;
+    let skipped = 0;
+    const errors = [];
+
+    for (const link of links) {
+      try {
+        if (!link?.uid || !link?.documentId || !link?.fields) {
+          skipped++;
+          continue;
+        }
+        if (!strapi.contentTypes?.[link.uid]) {
+          skipped++;
+          continue;
+        }
+
+        const dp = !!(strapi.contentTypes[link.uid]?.options?.draftAndPublish);
+        const existing = await strapi.documents(link.uid).findOne({
+          documentId: link.documentId,
+          ...(dp ? { status: 'published' } : {}),
+        });
+        if (!existing) {
+          // The entity itself has not been synced yet — pass 1 owns creating it.
+          skipped++;
+          continue;
+        }
+
+        const data = {};
+        for (const [field, spec] of Object.entries(link.fields)) {
+          const attr = strapi.contentTypes[link.uid]?.attributes?.[field];
+          if (!attr || attr.type !== 'media') continue;
+
+          const refs = Array.isArray(spec?.files) ? spec.files : [];
+          if (refs.length === 0) {
+            data[field] = attr.multiple ? [] : null;
+            continue;
+          }
+
+          const ids = [];
+          for (const ref of refs) {
+            const file = await resolveLocalFile(ref, fileCache);
+            if (file?.id) ids.push(file.id);
+          }
+          if (ids.length === 0) {
+            // Nothing resolved — do not wipe an existing link.
+            continue;
+          }
+          data[field] = attr.multiple ? ids : ids[0];
+        }
+
+        if (Object.keys(data).length === 0) {
+          unchanged++;
+          continue;
+        }
+
+        markAsRemoteUpdate(`${link.uid}:${link.documentId}`);
+        await strapi.documents(link.uid).update({
+          documentId: link.documentId,
+          data,
+          ...(dp ? { status: 'published' } : {}),
+        });
+        applied++;
+      } catch (err) {
+        errors.push({ uid: link?.uid, documentId: link?.documentId, error: err.message });
+      }
+    }
+
+    return { total: links.length, applied, unchanged, skipped, errors };
+  }
+
+  async function fetchRemoteEntityMediaLinks(remoteConfig, { uid, page = 1, pageSize = 100 }) {
+    const url = new URL('/api/strapi-content-sync-pro/media-sync/entity-media-links', remoteConfig.baseUrl);
+    url.searchParams.set('uid', uid);
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('pageSize', String(pageSize));
+
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${remoteConfig.apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      const body = await safeReadBody(res);
+      const err = new Error(`Remote entity-media-links fetch failed (${res.status}): ${body}`);
+      err.status = res.status;
+      throw err;
+    }
+
+    const json = await res.json();
+    return json?.data || { links: [], hasMore: false };
+  }
+
+  async function applyRemoteEntityMediaLinks(remoteConfig, links = []) {
+    const url = new URL('/api/strapi-content-sync-pro/media-sync/entity-media-links/apply', remoteConfig.baseUrl);
+    const payload = { links };
+    const timestamp = Date.now().toString();
+    const signature = generateSignature(payload, remoteConfig.sharedSecret, timestamp);
+
+    const res = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${remoteConfig.apiToken}`,
+        'Content-Type': 'application/json',
+        'x-sync-signature': signature,
+        'x-sync-timestamp': timestamp,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const body = await safeReadBody(res);
+      const err = new Error(`Remote entity-media-links apply failed (${res.status}): ${body}`);
+      err.status = res.status;
+      throw err;
+    }
+
+    const json = await res.json();
+    return json?.data || { total: links.length, applied: 0, skipped: 0, errors: [] };
+  }
+
+  /**
+   * Pass 2 for media: walk the in-scope owning content types and sync their
+   * media links in the profile's direction.
+   *
+   * Peers older than this version don't expose the entity-media-links
+   * endpoints. A 404 there falls back to the legacy morph-link transport once,
+   * with a warning, so a mixed-version pair still syncs.
+   */
+  async function syncMediaLinks(profile, settings, options = {}) {
+    const configService = plugin().service('config');
+    const remoteConfig = await configService.getConfig({ safe: false });
+    if (!remoteConfig?.baseUrl) throw new Error('Remote server not configured');
+
+    const pid = profile.id;
+    const direction = options.direction || settings.direction;
+    const pageSize = Math.max(1, Math.min(Number(settings.pageSize) || 100, 500));
+    const scope = await resolveMediaLinkScope(options.scopeUids || []);
+
+    const out = {
+      contentTypes: scope.map((s) => s.uid),
+      pulled: 0,
+      pushed: 0,
+      skipped: 0,
+      unchanged: 0,
+      errors: [],
+      legacyFallback: false,
+      cancelled: false,
+    };
+
+    if (settings.dryRun) return out;
+
+    for (const { uid } of scope) {
+      // PULL: remote owner entities → local links
+      if (direction === 'pull' || direction === 'both') {
+        for (let page = 1; ; page += 1) {
+          const abort = await checkpoint(pid);
+          if (abort?.cancelled) { out.cancelled = true; break; }
+          let remote;
+          try {
+            remote = await fetchRemoteEntityMediaLinks(remoteConfig, { uid, page, pageSize });
+          } catch (err) {
+            if (err.status === 404) { out.legacyFallback = true; break; }
+            out.errors.push({ name: `media_links_pull:${uid}`, error: err.message });
+            break;
+          }
+          const result = await applyEntityMediaLinks(remote.links || []);
+          out.pulled += result.applied;
+          out.skipped += result.skipped;
+          out.unchanged += result.unchanged;
+          if (result.errors.length) {
+            out.errors.push(...result.errors.map((e) => ({ name: `media_links_pull:${uid}`, error: e.error })));
+          }
+          if (!remote.hasMore) break;
+        }
+      }
+      if (out.cancelled) break;
+
+      // PUSH: local owner entities → remote links
+      if (direction === 'push' || direction === 'both') {
+        for (let page = 1; ; page += 1) {
+          const abort = await checkpoint(pid);
+          if (abort?.cancelled) { out.cancelled = true; break; }
+          let local;
+          try {
+            local = await exportEntityMediaLinks({ uid, page, pageSize });
+          } catch (err) {
+            out.errors.push({ name: `media_links_push:${uid}`, error: err.message });
+            break;
+          }
+          if (local.links.length > 0) {
+            try {
+              const result = await applyRemoteEntityMediaLinks(remoteConfig, local.links);
+              out.pushed += result.applied || 0;
+              out.skipped += result.skipped || 0;
+              out.unchanged += result.unchanged || 0;
+              if (Array.isArray(result.errors) && result.errors.length) {
+                out.errors.push(...result.errors.map((e) => ({ name: `media_links_push:${uid}`, error: e.error || 'remote apply error' })));
+              }
+            } catch (err) {
+              if (err.status === 404) { out.legacyFallback = true; break; }
+              out.errors.push({ name: `media_links_push:${uid}`, error: err.message });
+              break;
+            }
+          }
+          if (!local.hasMore) break;
+        }
+      }
+      if (out.cancelled) break;
+    }
+
+    // Mixed-version pair: the peer predates owner-side link sync. Fall back to
+    // the legacy morph transport so links still land, and say so in the summary.
+    if (out.legacyFallback && !out.cancelled) {
+      strapi.log?.warn?.('[data-sync] peer does not expose entity-media-links; falling back to legacy morph-link sync');
+      try {
+        if (direction === 'pull' || direction === 'both') {
+          const remoteLinks = await fetchRemoteMorphLinks(remoteConfig);
+          const applyResult = await applyMorphLinks(remoteLinks);
+          out.pulled += applyResult.applied || 0;
+          out.skipped += applyResult.skipped || 0;
+        }
+        if (direction === 'push' || direction === 'both') {
+          const localLinks = await exportMorphLinks();
+          const applyResult = await applyRemoteMorphLinks(remoteConfig, localLinks);
+          out.pushed += applyResult.applied || 0;
+          out.skipped += applyResult.skipped || 0;
+        }
+      } catch (err) {
+        out.errors.push({ name: 'media_links_legacy', error: err.message });
+      }
+    }
+
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
   // URL strategy
   // ---------------------------------------------------------------------------
 
@@ -893,29 +1286,39 @@ module.exports = ({ strapi }) => {
     return out;
   }
 
-  async function syncMediaViaUrl(profile, globalSettings) {
+  async function syncMediaViaUrl(profile, globalSettings, options = {}) {
     const settings = { ...globalSettings, ...profile };
     const configService = plugin().service('config');
     const logService = plugin().service('syncLog');
     const remoteConfig = await configService.getConfig({ safe: false });
     if (!remoteConfig?.baseUrl) throw new Error('Remote server not configured');
 
-    const totals = { pushed: 0, pulled: 0, skipped: 0, dbRowsUpdated: 0, morphLinksApplied: 0, morphLinksSkipped: 0, errors: [] };
+    // Media follows the same two-pass strategy as content:
+    //   pass 1 (core)  — file bytes + upload rows, so files exist as targets
+    //   pass 2 (links) — entity→file links, written from the owning entities
+    const phases = Array.isArray(options.phases) && options.phases.length
+      ? options.phases
+      : [MEDIA_PHASE_CORE, MEDIA_PHASE_LINKS];
+    const runCore = phases.includes(MEDIA_PHASE_CORE);
+    const runLinks = phases.includes(MEDIA_PHASE_LINKS);
+
+    const totals = { pushed: 0, pulled: 0, skipped: 0, dbRowsUpdated: 0, mediaLinksApplied: 0, mediaLinksSkipped: 0, errors: [] };
     const started = Date.now();
     const pid = profile.id;
     const abort = () => checkpoint(pid);
 
-    await updateProgress(pid, { phase: 'indexing-local', processed: 0, total: 0, pushed: 0, pulled: 0, skipped: 0, errors: 0 });
-
     const localIndex = new Map();
-    for await (const batch of iterateLocalFiles(settings.pageSize)) {
-      const a = await checkpoint(pid);
-      if (a && a.cancelled) { totals.cancelled = true; break; }
-      for (const f of batch) localIndex.set(mediaStableKey(f), f);
+    if (runCore) {
+      await updateProgress(pid, { phase: 'indexing-local', processed: 0, total: 0, pushed: 0, pulled: 0, skipped: 0, errors: 0 });
+      for await (const batch of iterateLocalFiles(settings.pageSize)) {
+        const a = await checkpoint(pid);
+        if (a && a.cancelled) { totals.cancelled = true; break; }
+        for (const f of batch) localIndex.set(mediaStableKey(f), f);
+      }
     }
 
     // PULL: remote -> local
-    if (!totals.cancelled && (settings.direction === 'pull' || settings.direction === 'both')) {
+    if (runCore && !totals.cancelled && (settings.direction === 'pull' || settings.direction === 'both')) {
       await updateProgress(pid, { phase: 'pull' });
       for await (const remoteBatch of iterateRemoteFiles(remoteConfig, settings.pageSize)) {
         const a = await checkpoint(pid);
@@ -963,25 +1366,8 @@ module.exports = ({ strapi }) => {
       }
     }
 
-    if (!totals.cancelled && profile.syncDbRows) {
-      try {
-        if (settings.direction === 'pull' || settings.direction === 'both') {
-          await updateProgress(pid, { phase: 'pull-morph' });
-          const remoteLinks = await fetchRemoteMorphLinks(remoteConfig);
-          const applyResult = await applyMorphLinks(remoteLinks);
-          totals.morphLinksApplied += applyResult.applied || 0;
-          totals.morphLinksSkipped += applyResult.skipped || 0;
-          if (Array.isArray(applyResult.errors) && applyResult.errors.length > 0) {
-            totals.errors.push(...applyResult.errors.map((e) => ({ name: 'morph_pull', error: e.error || 'morph apply error' })));
-          }
-        }
-      } catch (err) {
-        totals.errors.push({ name: 'morph_pull', error: err.message });
-      }
-    }
-
     // PUSH: local -> remote
-    if (!totals.cancelled && (settings.direction === 'push' || settings.direction === 'both')) {
+    if (runCore && !totals.cancelled && (settings.direction === 'push' || settings.direction === 'both')) {
       await updateProgress(pid, { phase: 'push-indexing-remote' });
       const remoteIndex = new Map();
       for await (const remoteBatch of iterateRemoteFiles(remoteConfig, settings.pageSize)) {
@@ -1030,18 +1416,23 @@ module.exports = ({ strapi }) => {
       }
     }
 
-    if (!totals.cancelled && profile.syncDbRows && (settings.direction === 'push' || settings.direction === 'both')) {
+    // ── Pass 2: owner-side entity → file links ─────────────────────────────
+    // Runs only after the files themselves exist as targets. Links are written
+    // from the owning content types; the file side is never traversed.
+    let links = null;
+    if (runLinks && !totals.cancelled) {
+      await updateProgress(pid, { phase: 'links' });
       try {
-        await updateProgress(pid, { phase: 'push-morph' });
-        const localLinks = await exportMorphLinks();
-        const applyRemoteResult = await applyRemoteMorphLinks(remoteConfig, localLinks);
-        totals.morphLinksApplied += applyRemoteResult.applied || 0;
-        totals.morphLinksSkipped += applyRemoteResult.skipped || 0;
-        if (Array.isArray(applyRemoteResult.errors) && applyRemoteResult.errors.length > 0) {
-          totals.errors.push(...applyRemoteResult.errors.map((e) => ({ name: 'morph_push', error: e.error || 'remote morph apply error' })));
-        }
+        links = await syncMediaLinks(profile, settings, {
+          scopeUids: options.scopeUids || [],
+          direction: settings.direction,
+        });
+        totals.mediaLinksApplied += (links.pulled || 0) + (links.pushed || 0);
+        totals.mediaLinksSkipped += links.skipped || 0;
+        if (links.errors?.length) totals.errors.push(...links.errors);
+        if (links.cancelled) totals.cancelled = true;
       } catch (err) {
-        totals.errors.push({ name: 'morph_push', error: err.message });
+        totals.errors.push({ name: 'media_links', error: err.message });
       }
     }
 
@@ -1052,8 +1443,10 @@ module.exports = ({ strapi }) => {
       profileId: profile.id,
       profileName: profile.name,
       direction: settings.direction,
+      phases,
       dryRun: !!settings.dryRun,
       durationMs: Date.now() - started,
+      links,
       ...totals,
     };
 
@@ -1062,7 +1455,7 @@ module.exports = ({ strapi }) => {
       contentType: 'plugin::upload.file',
       direction: settings.direction,
       status: totals.errors.length ? 'partial' : 'success',
-      message: `URL media sync [${profile.name}]: pushed=${totals.pushed}, pulled=${totals.pulled}, dbRows=${totals.dbRowsUpdated}, skipped=${totals.skipped}, errors=${totals.errors.length}`,
+      message: `URL media sync [${profile.name}] (${phases.join(' → ')}): pushed=${totals.pushed}, pulled=${totals.pulled}, dbRows=${totals.dbRowsUpdated}, links=${totals.mediaLinksApplied}, skipped=${totals.skipped}, errors=${totals.errors.length}`,
       details: summary,
     });
 
@@ -1219,12 +1612,24 @@ module.exports = ({ strapi }) => {
     if (statusData.paused) delete statusData.paused[profileId];
     await setStatus(statusData);
 
+    const phases = Array.isArray(options.phases) && options.phases.length
+      ? options.phases
+      : [MEDIA_PHASE_CORE, MEDIA_PHASE_LINKS];
+
     try {
       let result;
       if (merged.strategy === 'rsync') {
+        // rsync moves bytes only; it has no way to resolve entity→file links
+        // (the upload rows it needs are not part of a file-level copy).
         result = await syncMediaViaRsync(merged, globalSettings);
+        if (phases.includes(MEDIA_PHASE_LINKS)) {
+          result.linksSkipped = 'rsync strategy transfers file bytes only — use the URL strategy to sync entity media links';
+        }
       } else {
-        result = await syncMediaViaUrl(merged, globalSettings);
+        result = await syncMediaViaUrl(merged, globalSettings, {
+          phases,
+          scopeUids: options.scopeUids || [],
+        });
       }
 
       // Update profile last execution
@@ -1249,6 +1654,18 @@ module.exports = ({ strapi }) => {
       await setStatus(s2);
       throw err;
     }
+  }
+
+  /**
+   * Run ONE media phase of a profile. Used by the content sync orchestrators so
+   * media can be interleaved into the global two-pass ordering: core media with
+   * the entities pass, media links with the relations pass.
+   *
+   * `scopeUids` narrows the link pass to the content types the caller is
+   * syncing, so a partial run doesn't rewrite links for types it never touched.
+   */
+  async function runProfilePhase(profileId, phase, options = {}) {
+    return runProfile(profileId, { ...options, phases: [phase] });
   }
 
   async function pauseProfile(profileId) {
@@ -1314,12 +1731,20 @@ module.exports = ({ strapi }) => {
 
     // Execution
     runProfile,
+    runProfilePhase,
     runActiveProfiles,
     pauseProfile,
     resumeProfile,
     cancelProfile,
 
-    // Morph link APIs (documentId-based)
+    // Owner-side entity → file link APIs (the current strategy)
+    exportEntityMediaLinks,
+    applyEntityMediaLinks,
+    resolveMediaLinkScope,
+
+    // Legacy morph link APIs. No longer part of the strategy — kept so a peer
+    // running an older plugin version can still exchange links with this one
+    // (see the fallback in syncMediaLinks).
     exportMorphLinks,
     applyMorphLinks,
 

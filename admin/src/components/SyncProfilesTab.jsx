@@ -41,8 +41,16 @@ const CONFLICT_STRATEGY_OPTIONS = [
 ];
 
 const EXECUTION_STRATEGY_OPTIONS = [
-  { value: 'hybrid_two_pass', label: 'Hybrid Two-Pass (Recommended)', hint: 'Pass 1: entities. Pass 2: relations from owner side. Most reliable.' },
-  { value: 'one_pass', label: 'One-Pass (Advanced)', hint: 'Single pass. Depth fixed to 1. Only owner-side direct in-scope targets. Less reliable for relation-heavy content.' },
+  {
+    value: 'hybrid_two_pass',
+    label: 'Hybrid Two-Pass (Recommended)',
+    hint: 'Pass 1 syncs entities and core media for every selected content type; pass 2 then links relations and media from the owner side. Because pass 1 finishes everywhere before pass 2 starts, a link always finds its target.',
+  },
+  {
+    value: 'one_pass',
+    label: 'One-Pass (Advanced)',
+    hint: 'Entities and relations are written together. Faster, but a relation whose target has not been created yet fails and is only retried on the next run — not recommended for relation-heavy content.',
+  },
 ];
 
 const FIELD_DIRECTION_OPTIONS = [
@@ -105,6 +113,10 @@ const SyncProfilesTab = () => {
   const [schemaFields, setSchemaFields] = useState([]);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [syncMode, setSyncMode] = useState('paired');
+  const [strategy, setStrategy] = useState(null);
+  // Execution settings live in the sync-execution store, keyed by profile id.
+  // They are edited here so a profile is configurable in one place.
+  const [execSettings, setExecSettings] = useState(null);
 
   // Sorted + filtered profiles
   const sortedProfiles = useMemo(() => {
@@ -252,17 +264,19 @@ const SyncProfilesTab = () => {
 
   const loadData = async () => {
     try {
-      const [profilesRes, ctRes, scRes, configRes] = await Promise.all([
+      const [profilesRes, ctRes, scRes, configRes, strategyRes] = await Promise.all([
         get(`/${PLUGIN_ID}/sync-profiles`),
         get(`/${PLUGIN_ID}/content-types`),
         get(`/${PLUGIN_ID}/sync-config`),
         get(`/${PLUGIN_ID}/config`),
+        get(`/${PLUGIN_ID}/strategy`),
       ]);
       setProfiles(profilesRes.data.data || []);
       setContentTypes(ctRes.data.data || []);
       const config = scRes.data.data || { contentTypes: [] };
       setEnabledTypes(config.contentTypes?.filter(ct => ct.enabled).map(ct => ct.uid) || []);
       setSyncMode(configRes?.data?.data?.syncMode || 'paired');
+      setStrategy(strategyRes?.data?.data || null);
     } catch (err) {
       console.error('Failed to load data', err);
       setMessage({ type: 'danger', text: err?.response?.data?.error?.message || err.message || 'Failed to load profiles' });
@@ -366,6 +380,14 @@ const SyncProfilesTab = () => {
     if (!profile.isSimple) {
       await loadContentTypeSchema(profile.contentType);
     }
+    // Execution settings are stored separately (sync-execution), so pull them
+    // in alongside the profile — the editor presents them as one form.
+    try {
+      const res = await get(`/${PLUGIN_ID}/sync-execution/settings/${profile.id}`);
+      setExecSettings(res?.data?.data || null);
+    } catch {
+      setExecSettings(null);
+    }
     setModalOpen(true);
   };
 
@@ -374,6 +396,7 @@ const SyncProfilesTab = () => {
   const closeModal = () => {
     setModalOpen(false);
     setEditingProfile(null);
+    setExecSettings(null);
     if (profileId) goToProfileList();
   };
 
@@ -427,6 +450,14 @@ const SyncProfilesTab = () => {
 
       if (editingProfile) {
         await put(`/${PLUGIN_ID}/sync-profiles/${editingProfile.id}`, payload);
+        // Persist the execution settings edited in the same form. Depth is not
+        // sent — it is fixed by the strategy contract and normalized server-side.
+        if (execSettings) {
+          await put(`/${PLUGIN_ID}/sync-execution/settings/${editingProfile.id}`, {
+            executionMode: execSettings.executionMode,
+            syncDependencies: !!execSettings.syncDependencies,
+          });
+        }
         setMessage({ type: 'success', text: 'Profile updated successfully' });
       } else {
         await post(`/${PLUGIN_ID}/sync-profiles`, payload);
@@ -839,14 +870,68 @@ const SyncProfilesTab = () => {
                   checked={formData.syncDeletions}
                   onCheckedChange={(checked) => setFormData((p) => ({ ...p, syncDeletions: checked }))}
                 >
-                  Sync Deletions (exclusive)
+                  Sync Deletions
                 </Checkbox>
                 <Box paddingTop={1}>
                   <Typography variant="pi" textColor="neutral500">
-                    When enabled, missing records are treated as deletions and propagated one-way based on profile direction.
+                    Propagates real deletions by comparing against a snapshot of what existed after the
+                    last sync, so a record that was never created is never mistaken for one that was
+                    deleted. Runs after both passes, in the profile's direction.
                   </Typography>
                 </Box>
               </Box>
+
+              {/* Advanced execution settings (existing profiles only — these are
+                  keyed by profile id in the execution store) */}
+              {editingProfile && execSettings && (
+                <Box paddingBottom={4} padding={4} background="neutral100" hasRadius>
+                  <Typography variant="delta">Advanced</Typography>
+
+                  <Box paddingTop={3}>
+                    <Field.Root>
+                      <Field.Label>Execution Mode</Field.Label>
+                      <SingleSelect
+                        value={execSettings.executionMode || 'on_demand'}
+                        onChange={(value) => setExecSettings((p) => ({ ...p, executionMode: value }))}
+                      >
+                        <SingleSelectOption value="on_demand">On demand</SingleSelectOption>
+                        <SingleSelectOption value="scheduled">Scheduled</SingleSelectOption>
+                        <SingleSelectOption value="live" disabled={syncMode === 'single_side'}>
+                          Live (lifecycle hooks)
+                        </SingleSelectOption>
+                      </SingleSelect>
+                      <Field.Hint>Schedule type and interval are configured in the Sync tab.</Field.Hint>
+                    </Field.Root>
+                  </Box>
+
+                  <Box paddingTop={3}>
+                    <Checkbox
+                      checked={!!execSettings.syncDependencies}
+                      onCheckedChange={(checked) => setExecSettings((p) => ({ ...p, syncDependencies: checked }))}
+                    >
+                      Sync direct dependencies with this profile
+                    </Checkbox>
+                    <Box paddingTop={1}>
+                      <Typography variant="pi" textColor="neutral500">
+                        Runs this content type's direct relation targets in the same run, entities first
+                        across the whole set, then relations — so a link always has its target present.
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  <Box paddingTop={3}>
+                    <Field.Root>
+                      <Field.Label>Dependency Depth</Field.Label>
+                      <TextInput value={String(strategy?.dependencies?.depth ?? 1)} disabled />
+                      <Field.Hint>
+                        Fixed at {strategy?.dependencies?.depth ?? 1} by the sync strategy: direct targets
+                        only, owner side only, and only content types that are themselves enabled.
+                        Deeper traversal is what makes a run unpredictable, so it is not configurable.
+                      </Field.Hint>
+                    </Field.Root>
+                  </Box>
+                </Box>
+              )}
 
               {/* Active Checkbox */}
               <Box paddingBottom={4}>

@@ -1,5 +1,11 @@
 'use strict';
 
+const {
+  DEPENDENCY_DEPTH,
+  contentPhasesFor,
+  resolveExecutionStrategy,
+} = require('../utils/strategy');
+
 const STORE_KEY = 'sync-execution-settings';
 
 /**
@@ -72,6 +78,10 @@ module.exports = ({ strapi }) => {
     // Pagination for content-type sync fetches (local + remote). Larger pages
     // are faster but use more memory per chunk. 100 is a safe default.
     syncPageSize: 100,
+    // Whether "Sync Now" also runs the media passes inline (core media with the
+    // entities pass, media links with the relations pass). Off by default so
+    // media keeps its own schedule unless the operator opts in.
+    syncNowIncludesMedia: false,
   };
 
   const VALID_EXECUTION_MODES = ['on_demand', 'scheduled', 'live'];
@@ -143,7 +153,8 @@ module.exports = ({ strapi }) => {
         nextExecutionAt: null,
         enabled: false,
         syncDependencies: false,
-        dependencyDepth: 1,
+        // Fixed by the strategy contract — surfaced read-only in the UI.
+        dependencyDepth: DEPENDENCY_DEPTH,
       };
     },
 
@@ -183,13 +194,6 @@ module.exports = ({ strapi }) => {
         }
       }
 
-      // Validate dependency depth
-      if (executionSettings.dependencyDepth !== undefined) {
-        if (executionSettings.dependencyDepth < 1 || executionSettings.dependencyDepth > 5) {
-          throw new Error('Dependency depth must be between 1 and 5');
-        }
-      }
-
       const current = settings.profiles[profileId] || {};
       const merged = {
         scheduleType: 'interval',
@@ -198,6 +202,11 @@ module.exports = ({ strapi }) => {
         ...executionSettings,
         updatedAt: new Date().toISOString(),
       };
+
+      // Dependency depth is fixed at 1 by the strategy contract. A stored or
+      // submitted value is normalized rather than rejected, so older configs
+      // (which allowed 1–5) keep working and quietly converge on the rule.
+      merged.dependencyDepth = DEPENDENCY_DEPTH;
 
       if (syncMode === 'single_side' && merged.executionMode === 'live') {
         merged.executionMode = 'on_demand';
@@ -277,8 +286,8 @@ module.exports = ({ strapi }) => {
 
       const executionSettings = await this.getProfileExecutionSettings(profileId);
       const syncDependencies = options.syncDependencies ?? executionSettings.syncDependencies;
-      // dependencyDepth is always 1 per strategy constraints regardless of stored setting
-      const dependencyDepth = 1;
+      // Always 1 per the strategy contract, whatever the stored setting says.
+      const dependencyDepth = DEPENDENCY_DEPTH;
 
       const startTime = new Date();
       const reportHandle = await syncStatsService.createRunReport({
@@ -298,12 +307,13 @@ module.exports = ({ strapi }) => {
           details: { profileId, syncDependencies, dependencyDepth },
         });
 
+        // ── Build the run scope: dependencies first, then the profile's own
+        // content type. Dependency expansion is constrained by the strategy
+        // contract — depth 1, owner/declaring side only, in-scope targets only.
+        const targets = [];
         const dependencyResults = [];
+
         if (syncDependencies) {
-          // Constrained dependency expansion:
-          //   - depth fixed to 1
-          //   - owner/declaring side only (no mappedBy/inversedBy traversal)
-          //   - only targets in sync scope (enabled content types)
           const syncConfigService = plugin().service('syncConfig');
           const syncConfig = await syncConfigService.getSyncConfig();
           const scopeUids = new Set(
@@ -312,47 +322,72 @@ module.exports = ({ strapi }) => {
               .map((ct) => ct.uid)
           );
 
-          const constrainedTargets = dependencyResolver.getConstrainedDependencyTargets(
-            profile.contentType,
-            scopeUids
-          );
+          const plan = dependencyResolver.getConstrainedDependencyPlan(profile.contentType, scopeUids);
 
-          for (const { uid: dependencyUid } of constrainedTargets) {
-            const depEnabled = scopeUids.has(dependencyUid);
-            if (!depEnabled) {
-              dependencyResults.push({
-                uid: dependencyUid,
-                profile: null,
-                skipped: true,
-                reason: 'dependency content-type not enabled for sync',
-              });
-              continue;
-            }
-
-            const dependencyProfile = await profilesService.getActiveProfileForContentType(dependencyUid);
-            const dependencyResult = await syncService.syncContentType(dependencyUid, {
-              profile: dependencyProfile,
-              syncDependencies: false,
-              dependencyDepth: 1,
-            });
-
+          for (const s of plan.skipped) {
             dependencyResults.push({
-              uid: dependencyUid,
-              profile: dependencyProfile ? { id: dependencyProfile.id, name: dependencyProfile.name } : null,
-              result: dependencyResult,
+              uid: s.uid,
+              profile: null,
+              skipped: true,
+              reason: s.reasonLabel || s.reason,
             });
+          }
+
+          for (const { uid: dependencyUid } of plan.targets) {
+            const dependencyProfile = await profilesService.getActiveProfileForContentType(dependencyUid);
+            targets.push({ uid: dependencyUid, profile: dependencyProfile, isDependency: true });
           }
         }
 
-        // Execute sync
-        const result = await syncService.syncContentType(profile.contentType, {
-          profile,
-          syncDependencies,
-          dependencyDepth,
-        });
+        targets.push({ uid: profile.contentType, profile, isDependency: false });
+
+        // ── Run the passes GLOBALLY across the scope, not per content type ──
+        // Every entity in the scope is materialized before any relation is
+        // written, so a link into a dependency (or back out of one) always has
+        // its target present. Per-type two-pass could not guarantee that.
+        const phases = contentPhasesFor(resolveExecutionStrategy(profile.executionStrategy));
+        const resultsByUid = new Map();
+
+        for (const phase of phases) {
+          for (const target of targets) {
+            const passResult = await syncService.syncContentType(target.uid, {
+              profile: target.profile,
+              phases: [phase],
+              syncDependencies: false,
+              dependencyDepth,
+            });
+
+            const prev = resultsByUid.get(target.uid);
+            resultsByUid.set(target.uid, prev
+              ? {
+                  ...passResult,
+                  pushed: prev.pushed + passResult.pushed,
+                  pulled: prev.pulled + passResult.pulled,
+                  errors: prev.errors + passResult.errors,
+                  unmatchedRelations: (prev.unmatchedRelations || 0) + (passResult.unmatchedRelations || 0),
+                  // Deletions only run on the final pass, so keep whichever
+                  // pass produced them.
+                  deletions: passResult.deletions || prev.deletions,
+                  phases,
+                }
+              : { ...passResult, phases });
+          }
+        }
+
+        for (const target of targets) {
+          if (!target.isDependency) continue;
+          dependencyResults.push({
+            uid: target.uid,
+            profile: target.profile ? { id: target.profile.id, name: target.profile.name } : null,
+            result: resultsByUid.get(target.uid) || null,
+          });
+        }
+
+        const result = resultsByUid.get(profile.contentType) || {};
 
         const fullResult = {
           ...result,
+          strategy: phases.length > 1 ? 'global_two_pass' : 'one_pass',
           dependencyResults,
         };
 
