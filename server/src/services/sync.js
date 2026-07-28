@@ -143,11 +143,22 @@ module.exports = ({ strapi }) => {
     const set = new Set();
 
     for (const [field, attr] of Object.entries(attrs)) {
-      // Owner/declaring side only: include relation fields that declare a
-      // target and are not inverse-only markers.
-      if (attr?.type === 'relation' && attr.target && !attr.mappedBy && !attr.inversedBy) {
-        if (allowed.size === 0 || allowed.has(field)) set.add(field);
-      }
+      if (attr?.type !== 'relation' || !attr.target) continue;
+      // Owner/declaring side only. Per Strapi's own relation metadata
+      // (@strapi/database/dist/metadata/relations.js: isOwner = !isBidirectional
+      // || hasInversedBy), the side declaring `inversedBy` IS the owner side for
+      // a bidirectional relation — only `mappedBy` marks the inverse side that
+      // must never be written from here (that would double-write the link).
+      if (attr.mappedBy) continue;
+      // Never write a relation whose target isn't a content type this sync run
+      // could plausibly know about — a documentId reference to a users-permissions
+      // user (or any admin/plugin-scoped record) is almost never present with a
+      // matching id on the target instance, and Strapi hard-fails the ENTIRE
+      // record's relations write (not just this field) on one unresolvable
+      // documentId. Excluding these is a strict narrowing, never adds a field
+      // that was previously included.
+      if (attr.target.startsWith('plugin::') || attr.target.startsWith('admin::')) continue;
+      if (allowed.size === 0 || allowed.has(field)) set.add(field);
     }
 
     return set;

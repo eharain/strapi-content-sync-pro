@@ -207,8 +207,11 @@ module.exports = ({ strapi }) => {
       const results = [];
 
       for (const rel of analysis.relations) {
-        // Owner/declaring side only: skip inverse and mapped-by sides
-        if (rel.mappedBy || rel.inversedBy) continue;
+        // Owner/declaring side only: skip the inverse (mappedBy) side. Per
+        // Strapi's own relation metadata, `inversedBy` marks the OWNER side of
+        // a bidirectional relation (only `mappedBy` is the inverse) — see the
+        // matching fix + citation in sync.js's getOwnerRelationFieldSet.
+        if (rel.mappedBy) continue;
         // Skip self-references
         if (rel.target === uid) continue;
         // Skip targets not in sync scope

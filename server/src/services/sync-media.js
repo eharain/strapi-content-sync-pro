@@ -586,9 +586,16 @@ module.exports = ({ strapi }) => {
           continue;
         }
 
-        let related = null;
+        // A Draft & Publish document has TWO rows sharing one documentId (the
+        // draft, and the published clone publishEntry makes of it) — fan the
+        // link out to every row, not just whichever one findOne's unordered
+        // lookup happens to return (in practice the lower id, i.e. the draft).
+        // Without this, media never attaches to the row the public API
+        // actually serves. Non-D&P types simply have one row here, so this is
+        // a no-op fan-out (one row, one insert) for them.
+        let relatedRows = [];
         try {
-          related = await strapi.db.query(link.relatedType).findOne({
+          relatedRows = await strapi.db.query(link.relatedType).findMany({
             where: { documentId: link.relatedDocumentId },
             select: ['id', 'documentId'],
           });
@@ -597,33 +604,39 @@ module.exports = ({ strapi }) => {
           continue;
         }
 
-        if (!related?.id) {
+        if (!relatedRows?.length) {
           skipped.push({ link, reason: 'related documentId not found locally' });
           continue;
         }
 
         const morphTable = resolveMorphTable();
-        let existsQ = strapi.db.connection(morphTable)
-          .where('file_id', file.id)
-          .andWhere('related_id', related.id)
-          .andWhere('related_type', link.relatedType);
+        let appliedAny = false;
+        for (const related of relatedRows) {
+          let existsQ = strapi.db.connection(morphTable)
+            .where('file_id', file.id)
+            .andWhere('related_id', related.id)
+            .andWhere('related_type', link.relatedType);
 
-        if (link.field) existsQ = existsQ.andWhere('field', link.field);
-        else existsQ = existsQ.whereNull('field');
+          if (link.field) existsQ = existsQ.andWhere('field', link.field);
+          else existsQ = existsQ.whereNull('field');
 
-        const existing = await existsQ.first();
-        if (existing) {
-          skipped.push({ link, reason: 'morph link already exists' });
-          continue;
+          const existing = await existsQ.first();
+          if (existing) continue;
+
+          await strapi.db.connection(morphTable).insert({
+            file_id: file.id,
+            related_id: related.id,
+            related_type: link.relatedType,
+            field: link.field || null,
+            order: link.order || 1,
+          });
+          appliedAny = true;
         }
 
-        await strapi.db.connection(morphTable).insert({
-          file_id: file.id,
-          related_id: related.id,
-          related_type: link.relatedType,
-          field: link.field || null,
-          order: link.order || 1,
-        });
+        if (!appliedAny) {
+          skipped.push({ link, reason: 'morph link already exists on every local row' });
+          continue;
+        }
 
         applied.push(link);
       } catch (err) {

@@ -8,11 +8,17 @@
  * @param {Object} options
  * @param {string} options.direction        – "push" | "pull" | "both"
  * @param {string} options.conflictStrategy – "latest" | "local_wins" | "remote_wins"
- * @param {boolean} options.syncDeletions   – propagate missing records as deletions
  * @returns {{ toPush, toPull, toCreateRemote, toCreateLocal, toDeleteRemote, toDeleteLocal }}
+ *
+ * Note: a record present on one side only is ALWAYS a create candidate here —
+ * deletion is exclusively reconcileDeletions' job (snapshot-based, so it can
+ * tell a genuine delete apart from "not created yet"). compareRecords used to
+ * accept a `syncDeletions` option that reinterpreted a one-sided record as a
+ * delete instead of a create on `push`/`pull` (never `both`) — which meant a
+ * one-way profile with that flag on never created anything, ever. Removed.
  */
 function compareRecords(localRecords, remoteRecords, options = {}) {
-  const { direction = 'both', conflictStrategy = 'latest', syncDeletions = false } = options;
+  const { direction = 'both', conflictStrategy = 'latest' } = options;
 
   const result = {
     toPush: [],
@@ -50,11 +56,7 @@ function compareRecords(localRecords, remoteRecords, options = {}) {
         result.toPull.push({ local: localRecord, remote: remoteRecord });
       }
     } else if (direction === 'push' || direction === 'both') {
-      if (syncDeletions && direction !== 'both') {
-        result.toDeleteRemote.push(localRecord);
-      } else {
-        result.toCreateRemote.push(localRecord);
-      }
+      result.toCreateRemote.push(localRecord);
     }
   }
 
@@ -62,12 +64,7 @@ function compareRecords(localRecords, remoteRecords, options = {}) {
   for (const [syncId] of remoteBySyncId) {
     if (!localBySyncId.has(syncId)) {
       if (direction === 'pull' || direction === 'both') {
-        const remoteRecord = remoteBySyncId.get(syncId);
-        if (syncDeletions && direction !== 'both') {
-          result.toDeleteLocal.push(remoteRecord);
-        } else {
-          result.toCreateLocal.push(remoteRecord);
-        }
+        result.toCreateLocal.push(remoteBySyncId.get(syncId));
       }
     }
   }
