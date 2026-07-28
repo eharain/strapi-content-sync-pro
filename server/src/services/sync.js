@@ -3,6 +3,14 @@
 const { fetchLocalRecords, fetchRemoteRecords, fetchLocalPage, fetchRemotePage, fetchAllLocalIds, fetchAllRemoteIds } = require('../utils/fetcher');
 const { compareRecords } = require('../utils/comparator');
 const { applyLocal, applyRemote, deleteLocal, deleteRemote } = require('../utils/applier');
+const {
+  PHASE_ALL,
+  PHASE_RELATIONS,
+  MEDIA_PHASE_CORE,
+  MEDIA_PHASE_LINKS,
+  contentPhasesFor,
+  resolveExecutionStrategy,
+} = require('../utils/strategy');
 
 const LAST_SYNC_STORE_KEY = 'last-sync-timestamps';
 const SYNCED_IDS_STORE_PREFIX = 'synced-ids:';
@@ -164,14 +172,14 @@ module.exports = ({ strapi }) => {
     return set;
   }
 
-  function selectFieldsForPhase(uid, configuredFields, phase = 'all') {
+  function selectFieldsForPhase(uid, configuredFields, phase = PHASE_ALL) {
     const configured = Array.isArray(configuredFields) ? configuredFields : [];
     if (!uid) return configured;
-    if (phase === 'all') return configured; // one_pass: [] means "all fields"
+    if (phase === PHASE_ALL) return configured; // one_pass: [] means "all fields"
 
     const ownerRelationFields = getOwnerRelationFieldSet(uid, configured);
 
-    if (phase === 'relations') {
+    if (phase === PHASE_RELATIONS) {
       // Owner-side relations plus the keys needed to match records by identity.
       return ['documentId', 'syncId', 'updatedAt', ...ownerRelationFields];
     }
@@ -187,6 +195,100 @@ module.exports = ({ strapi }) => {
       ? configured.filter((f) => isScalarSyncField(uid, f))
       : allScalarFields(uid);
     return base;
+  }
+
+  /**
+   * A content type has nothing to do in the relations pass when it declares no
+   * owner-side relations — skipping it avoids a pointless double fetch of every
+   * record on both sides.
+   */
+  function hasOwnerRelations(uid, configuredFields) {
+    return getOwnerRelationFieldSet(uid, configuredFields).size > 0;
+  }
+
+  /**
+   * Apply one phase of one content type and return its counters.
+   *
+   * This is the single write path shared by sync-now and profile execution, so
+   * both entry points apply the strategy identically.
+   */
+  async function runPhaseForContentType(ctx) {
+    const {
+      uid, phase, direction, conflictStrategy,
+      fields, fieldPolicies, remoteConfig, pageSize, lastSyncAt,
+    } = ctx;
+
+    const logService = plugin().service('syncLog');
+    const syncProfilesService = plugin().service('syncProfiles');
+
+    const counters = { pushed: 0, pulled: 0, errors: 0, unmatched: 0 };
+    const phaseFields = selectFieldsForPhase(uid, fields, phase);
+
+    // Both sides are fetched in pages of `pageSize` records under the hood (see
+    // utils/fetcher.js). We aggregate per content-type because the comparator
+    // needs the full set to diff by documentId, but each network/DB call still
+    // only returns a bounded chunk.
+    const localRecords = await fetchLocalRecords(strapi, uid, { fields: phaseFields, lastSyncAt, pageSize });
+    const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields: phaseFields, lastSyncAt, pageSize });
+
+    // Deletions never come from a phase diff — a one-sided record is a create
+    // candidate, not a delete. reconcileDeletions owns deletion, from the full
+    // documentId snapshot, after both passes.
+    const diff = compareRecords(localRecords, remoteRecords, {
+      direction,
+      conflictStrategy,
+      phase,
+    });
+
+    counters.unmatched = diff.unmatched || 0;
+
+    const pushRecord = async (record, action) => {
+      try {
+        const filtered = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'push');
+        await applyRemote(remoteConfig, uid, filtered, phaseFields);
+        counters.pushed++;
+      } catch (err) {
+        counters.errors++;
+        await logService.log({ action, contentType: uid, syncId: record.syncId || record.documentId, direction: 'push', status: 'error', message: `[${phase}] ${err.message}` });
+      }
+    };
+
+    const pullRecord = async (record, action) => {
+      try {
+        const filtered = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'pull');
+        await applyLocal(strapi, uid, filtered, phaseFields);
+        counters.pulled++;
+      } catch (err) {
+        counters.errors++;
+        await logService.log({ action, contentType: uid, syncId: record.syncId || record.documentId, direction: 'pull', status: 'error', message: `[${phase}] ${err.message}` });
+      }
+    };
+
+    for (const { local } of diff.toPush) await pushRecord(local, 'push');
+    for (const { remote } of diff.toPull) await pullRecord(remote, 'pull');
+    for (const record of diff.toCreateRemote) await pushRecord(record, 'create_remote');
+    for (const record of diff.toCreateLocal) await pullRecord(record, 'create_local');
+
+    return counters;
+  }
+
+  /**
+   * Run one media phase (core files, or owner-side entity→file links) against
+   * the active media profile. Media participates in the same two-pass shape as
+   * content: files are a referenced target in pass 1, links are written from
+   * the owning entities in pass 2.
+   *
+   * Returns null when media is not configured — media is opt-in for content
+   * runs and has its own tab/schedule for standalone execution.
+   */
+  async function runMediaPhase(mediaPhase, { scopeUids = [], direction } = {}) {
+    const syncMedia = plugin().service('syncMedia');
+    if (!syncMedia?.runProfilePhase) return null;
+
+    const profile = await syncMedia.getActiveProfile();
+    if (!profile || profile.strategy === 'disabled') return null;
+
+    return syncMedia.runProfilePhase(profile.id, mediaPhase, { scopeUids, direction });
   }
 
   return {
@@ -206,12 +308,21 @@ module.exports = ({ strapi }) => {
     },
 
     /**
-     * Step 6 + 7 + 10 — Execute a manual / incremental sync for every
-     * enabled content type.
+     * Manual / incremental sync for every enabled content type.
      *
-     * Now supports field-level policies from Sync Profiles.
+     * Execution follows the strategy contract's GLOBAL two-pass ordering: pass 1
+     * materializes entities for ALL selected content types (plus core media),
+     * then pass 2 links relations for all of them (plus media links from the
+     * owning entities). Running the passes globally — rather than both passes
+     * per content type — is what makes cross-type relations resolvable: by the
+     * time any link is written, every record it can point at already exists on
+     * both sides.
+     *
+     * options:
+     *   - includeMedia: also run the media phases inline (defaults to the
+     *     `syncNowIncludesMedia` global execution setting)
      */
-    async syncNow() {
+    async syncNow(options = {}) {
       const logService = plugin().service('syncLog');
       const configService = plugin().service('config');
       const syncConfigService = plugin().service('syncConfig');
@@ -227,43 +338,10 @@ module.exports = ({ strapi }) => {
       const syncConfig = await syncConfigService.getSyncConfig();
       const enabledTypes = (syncConfig.contentTypes || []).filter((ct) => ct.enabled);
 
-      // Reorder enabled types so dependency targets are processed before
-      // dependents. This improves relation consistency during full sync.
-      const enabledSet = new Set(enabledTypes.map((ct) => ct.uid));
-      const inDegree = new Map();
-      const adjacency = new Map();
-      enabledTypes.forEach((ct) => {
-        inDegree.set(ct.uid, 0);
-        adjacency.set(ct.uid, []);
-      });
-      for (const ct of enabledTypes) {
-        try {
-          const rels = dependencyResolver.analyzeContentType(ct.uid)?.relations || [];
-          for (const rel of rels) {
-            const depUid = rel.target;
-            if (!enabledSet.has(depUid) || depUid === ct.uid) continue;
-            adjacency.get(depUid).push(ct.uid);
-            inDegree.set(ct.uid, (inDegree.get(ct.uid) || 0) + 1);
-          }
-        } catch (_) {
-          // Ignore schema parse failures and keep original order fallback.
-        }
-      }
-      const queue = enabledTypes.map((ct) => ct.uid).filter((uid) => (inDegree.get(uid) || 0) === 0);
-      const orderedUids = [];
-      while (queue.length > 0) {
-        const uid = queue.shift();
-        orderedUids.push(uid);
-        for (const next of adjacency.get(uid) || []) {
-          const deg = (inDegree.get(next) || 0) - 1;
-          inDegree.set(next, deg);
-          if (deg === 0) queue.push(next);
-        }
-      }
-      // Cycle fallback: append any remaining in original order.
-      for (const ct of enabledTypes) {
-        if (!orderedUids.includes(ct.uid)) orderedUids.push(ct.uid);
-      }
+      // Dependency-aware ordering: targets before the types that reference them.
+      // Owner-side, in-scope edges only, so a two-way relation pair can't look
+      // like a cycle.
+      const orderedUids = dependencyResolver.orderByDependencies(enabledTypes.map((ct) => ct.uid));
       const enabledTypesOrdered = orderedUids
         .map((uid) => enabledTypes.find((ct) => ct.uid === uid))
         .filter(Boolean);
@@ -285,147 +363,152 @@ module.exports = ({ strapi }) => {
         }
 
         const pageSize = Number(globalExec.syncPageSize) || 100;
+        const includeMedia = options.includeMedia !== undefined
+          ? !!options.includeMedia
+          : !!globalExec.syncNowIncludesMedia;
 
         const timestamps = await getLastSyncTimestamps();
-        const conflictStrategy = syncConfig.conflictStrategy || 'latest';
-        const results = [];
+        const globalConflictStrategy = syncConfig.conflictStrategy || 'latest';
+        const syncStartTime = new Date().toISOString();
 
+        // ── Resolve every content type's plan up front ────────────────────
+        // Each type keeps its own profile settings, but the PASS ordering is
+        // global, so the plans are resolved once and then walked pass by pass.
+        const plans = [];
         for (const ctConfig of enabledTypesOrdered) {
           const { uid, direction, fields } = ctConfig;
-          const lastSyncAt = timestamps[uid] || null;
-          const syncStartTime = new Date().toISOString();
-
-          // Get field-level policies from active profile (if any)
-          const fieldPolicies = await syncProfilesService.getFieldPoliciesForContentType(uid);
-
           try {
-            const profileForOptions = await syncProfilesService.getActiveProfileForContentType(uid);
-            const syncDeletions = !!(profileForOptions?.syncDeletions);
-            const executionStrategy = profileForOptions?.executionStrategy || 'hybrid_two_pass';
-            const phases = executionStrategy === 'one_pass' ? ['all'] : ['entities', 'relations'];
-
-            let pushed = 0;
-            let pulled = 0;
-            let errors = 0;
-
-            for (const phase of phases) {
-              const phaseFields = selectFieldsForPhase(uid, fields, phase);
-
-              // Both sides are fetched in pages of `pageSize` records under the
-              // hood (see utils/fetcher.js). We aggregate per content-type because
-              // the comparator needs the full set to diff by syncId, but each
-              // network/DB call still only returns a bounded chunk.
-              const localRecords = await fetchLocalRecords(strapi, uid, { fields: phaseFields, lastSyncAt, pageSize });
-              const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields: phaseFields, lastSyncAt, pageSize });
-
-              const diff = compareRecords(localRecords, remoteRecords, {
-                direction,
-                conflictStrategy,
-                syncDeletions: false, // deletions handled by reconcileDeletions
-              });
-
-              // Apply field policies to records before pushing/pulling
-              for (const { local } of diff.toPush) {
-                try {
-                  const filteredRecord = syncProfilesService.filterFieldsByPolicy(local, fieldPolicies, 'push');
-                  await applyRemote(remoteConfig, uid, filteredRecord, phaseFields);
-                  pushed++;
-                } catch (err) {
-                  errors++;
-                  await logService.log({ action: 'push', contentType: uid, syncId: local.syncId, direction: 'push', status: 'error', message: err.message });
-                }
-              }
-
-              for (const { remote } of diff.toPull) {
-                try {
-                  const filteredRecord = syncProfilesService.filterFieldsByPolicy(remote, fieldPolicies, 'pull');
-                  await applyLocal(strapi, uid, filteredRecord, phaseFields);
-                  pulled++;
-                } catch (err) {
-                  errors++;
-                  await logService.log({ action: 'pull', contentType: uid, syncId: remote.syncId, direction: 'pull', status: 'error', message: err.message });
-                }
-              }
-
-              for (const record of diff.toCreateRemote) {
-                try {
-                  const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'push');
-                  await applyRemote(remoteConfig, uid, filteredRecord, phaseFields);
-                  pushed++;
-                } catch (err) {
-                  errors++;
-                  await logService.log({ action: 'create_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
-                }
-              }
-
-              for (const record of diff.toCreateLocal) {
-                try {
-                  const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'pull');
-                  await applyLocal(strapi, uid, filteredRecord, phaseFields);
-                  pulled++;
-                } catch (err) {
-                  errors++;
-                  await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
-                }
-              }
-
-              // Deletion handling only in non-relations phase
-              if (phase !== 'relations') {
-                for (const record of diff.toDeleteRemote) {
-                  try {
-                    await deleteRemote(remoteConfig, uid, record);
-                    await logService.log({ action: 'delete_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'success', message: `Deleted remote record ${record.syncId}` });
-                  } catch (err) {
-                    errors++;
-                    await logService.log({ action: 'delete_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
-                  }
-                }
-
-                for (const record of diff.toDeleteLocal) {
-                  try {
-                    await deleteLocal(strapi, uid, record);
-                    await logService.log({ action: 'delete_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'success', message: `Deleted local record ${record.syncId}` });
-                  } catch (err) {
-                    errors++;
-                    await logService.log({ action: 'delete_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
-                  }
-                }
-              }
-            }
-
-            let deletions = null;
-            if (syncDeletions) {
-              deletions = await reconcileDeletions(uid, { direction, remoteConfig });
-              errors += deletions.errors;
-            }
-
-            await setLastSyncTimestamp(uid, syncStartTime);
-
-            const summary = { uid, pushed, pulled, errors, hasFieldPolicies: !!fieldPolicies, executionStrategy, deletions };
-            results.push(summary);
-
-            await logService.log({
-              action: 'sync_complete',
-              contentType: uid,
-              direction,
-              status: errors > 0 ? 'partial' : 'success',
-              message: `Pushed: ${pushed}, Pulled: ${pulled}, Errors: ${errors}${fieldPolicies ? ' (with field policies)' : ''}${executionStrategy === 'hybrid_two_pass' ? ' (hybrid two-pass)' : ''}`,
-              details: summary,
+            const profile = await syncProfilesService.getActiveProfileForContentType(uid);
+            const executionStrategy = resolveExecutionStrategy(profile?.executionStrategy);
+            plans.push({
+              uid,
+              direction: direction || 'both',
+              fields: fields || [],
+              conflictStrategy: profile?.conflictStrategy || globalConflictStrategy,
+              syncDeletions: !!profile?.syncDeletions,
+              executionStrategy,
+              phases: contentPhasesFor(executionStrategy),
+              fieldPolicies: await syncProfilesService.getFieldPoliciesForContentType(uid),
+              lastSyncAt: timestamps[uid] || null,
+              pushed: 0,
+              pulled: 0,
+              errors: 0,
+              unmatched: 0,
+              failed: null,
             });
           } catch (err) {
-            results.push({ uid, error: err.message });
-            await maybeAlertAuthFailure(uid, err);
-            await logService.log({
-              action: 'sync_error',
-              contentType: uid,
-              direction,
-              status: 'error',
-              message: err.message,
-            });
+            plans.push({ uid, failed: err.message, phases: [] });
           }
         }
 
-        const response = { syncedAt: new Date().toISOString(), results };
+        // ── Pass 1: entities (+ one-pass types) for EVERY content type ────
+        for (const plan of plans) {
+          if (plan.failed) continue;
+          const phase = plan.phases[0]; // 'entities' (hybrid) or 'all' (one-pass)
+          if (!phase) continue;
+          try {
+            const counters = await runPhaseForContentType({ ...plan, phase, remoteConfig, pageSize });
+            plan.pushed += counters.pushed;
+            plan.pulled += counters.pulled;
+            plan.errors += counters.errors;
+          } catch (err) {
+            plan.failed = err.message;
+            await maybeAlertAuthFailure(plan.uid, err);
+            await logService.log({ action: 'sync_error', contentType: plan.uid, direction: plan.direction, status: 'error', message: `[${phase}] ${err.message}` });
+          }
+        }
+
+        // Core media rides along with pass 1: files must exist before any
+        // entity→file link is written in pass 2.
+        let mediaCore = null;
+        if (includeMedia) {
+          try {
+            mediaCore = await runMediaPhase(MEDIA_PHASE_CORE, { scopeUids: plans.map((p) => p.uid) });
+          } catch (err) {
+            await logService.log({ action: 'media_sync', contentType: 'plugin::upload.file', status: 'error', message: `[${MEDIA_PHASE_CORE}] ${err.message}` });
+          }
+        }
+
+        // ── Pass 2: relations, owner side only, for EVERY content type ────
+        for (const plan of plans) {
+          if (plan.failed) continue;
+          const phase = plan.phases[1];
+          if (phase !== PHASE_RELATIONS) continue;
+          if (!hasOwnerRelations(plan.uid, plan.fields)) continue;
+          try {
+            const counters = await runPhaseForContentType({ ...plan, phase, remoteConfig, pageSize });
+            plan.pushed += counters.pushed;
+            plan.pulled += counters.pulled;
+            plan.errors += counters.errors;
+            plan.unmatched += counters.unmatched;
+          } catch (err) {
+            plan.failed = err.message;
+            await maybeAlertAuthFailure(plan.uid, err);
+            await logService.log({ action: 'sync_error', contentType: plan.uid, direction: plan.direction, status: 'error', message: `[${phase}] ${err.message}` });
+          }
+        }
+
+        // Media links close pass 2, written from the owning entities.
+        let mediaLinks = null;
+        if (includeMedia) {
+          try {
+            mediaLinks = await runMediaPhase(MEDIA_PHASE_LINKS, {
+              scopeUids: plans.filter((p) => !p.failed).map((p) => p.uid),
+            });
+          } catch (err) {
+            await logService.log({ action: 'media_sync', contentType: 'plugin::upload.file', status: 'error', message: `[${MEDIA_PHASE_LINKS}] ${err.message}` });
+          }
+        }
+
+        // ── Deletion reconciliation + per-type reporting ──────────────────
+        const results = [];
+        for (const plan of plans) {
+          if (plan.failed) {
+            results.push({ uid: plan.uid, error: plan.failed });
+            continue;
+          }
+
+          let deletions = null;
+          if (plan.syncDeletions) {
+            try {
+              deletions = await reconcileDeletions(plan.uid, { direction: plan.direction, remoteConfig });
+              plan.errors += deletions.errors;
+            } catch (err) {
+              plan.errors += 1;
+              await logService.log({ action: 'sync_error', contentType: plan.uid, direction: plan.direction, status: 'error', message: `[deletions] ${err.message}` });
+            }
+          }
+
+          await setLastSyncTimestamp(plan.uid, syncStartTime);
+
+          const summary = {
+            uid: plan.uid,
+            pushed: plan.pushed,
+            pulled: plan.pulled,
+            errors: plan.errors,
+            unmatchedRelations: plan.unmatched,
+            hasFieldPolicies: !!plan.fieldPolicies,
+            executionStrategy: plan.executionStrategy,
+            deletions,
+          };
+          results.push(summary);
+
+          await logService.log({
+            action: 'sync_complete',
+            contentType: plan.uid,
+            direction: plan.direction,
+            status: plan.errors > 0 ? 'partial' : 'success',
+            message: `Pushed: ${plan.pushed}, Pulled: ${plan.pulled}, Errors: ${plan.errors}${plan.fieldPolicies ? ' (with field policies)' : ''} (${plan.executionStrategy})`,
+            details: summary,
+          });
+        }
+
+        const response = {
+          syncedAt: new Date().toISOString(),
+          strategy: 'global_two_pass',
+          results,
+          media: includeMedia ? { core: mediaCore, links: mediaLinks } : null,
+        };
         await syncStatsService.completeRunReport(reportHandle.reportId, {
           status: 'success',
           summary: response,
@@ -449,10 +532,13 @@ module.exports = ({ strapi }) => {
      * Sync a single content type using a given profile.
      * Called by the execution service (on-demand / scheduled / live runs).
      *
+     * Runs the profile's own phases in order (entities → relations for the
+     * default hybrid strategy). Cross-type ordering is the caller's job: the
+     * execution service syncs in-scope dependencies first.
+     *
      * options:
      *   - profile: sync profile { contentType, direction, conflictStrategy, isSimple, fieldPolicies }
-     *   - syncDependencies: boolean (currently informational; dependency resolution handled upstream)
-     *   - dependencyDepth: number
+     *   - phases: explicit phase list (used by callers driving the global passes)
      */
     async syncContentType(uid, options = {}) {
       if (!uid) {
@@ -478,8 +564,10 @@ module.exports = ({ strapi }) => {
       const conflictStrategy = profile?.conflictStrategy || syncConfig.conflictStrategy || 'latest';
       const syncDeletions = !!(profile?.syncDeletions);
       const fields = ctConfig.fields || [];
-      const executionStrategy = profile?.executionStrategy || 'hybrid_two_pass';
-      const phases = executionStrategy === 'one_pass' ? ['all'] : ['entities', 'relations'];
+      const executionStrategy = resolveExecutionStrategy(profile?.executionStrategy);
+      const phases = Array.isArray(options.phases) && options.phases.length
+        ? options.phases
+        : contentPhasesFor(executionStrategy);
 
       // Field-level policies: prefer the policies on the provided profile,
       // otherwise fall back to the active profile for the content type.
@@ -505,101 +593,56 @@ module.exports = ({ strapi }) => {
       let pushed = 0;
       let pulled = 0;
       let errors = 0;
+      let unmatched = 0;
 
       try {
         for (const phase of phases) {
-          const phaseFields = selectFieldsForPhase(uid, fields, phase);
-          const localRecords = await fetchLocalRecords(strapi, uid, { fields: phaseFields, lastSyncAt, pageSize });
-          const remoteRecords = await fetchRemoteRecords(remoteConfig, uid, { fields: phaseFields, lastSyncAt, pageSize });
+          if (phase === PHASE_RELATIONS && !hasOwnerRelations(uid, fields)) continue;
 
-          const diff = compareRecords(localRecords, remoteRecords, {
+          const counters = await runPhaseForContentType({
+            uid,
+            phase,
             direction,
             conflictStrategy,
-            syncDeletions: phase === 'relations' ? false : syncDeletions,
+            syncDeletions,
+            fields,
+            fieldPolicies,
+            remoteConfig,
+            pageSize,
+            lastSyncAt,
           });
 
-          for (const { local } of diff.toPush) {
-            try {
-              const filteredRecord = syncProfilesService.filterFieldsByPolicy(local, fieldPolicies, 'push');
-              await applyRemote(remoteConfig, uid, filteredRecord, phaseFields);
-              pushed++;
-            } catch (err) {
-              errors++;
-              await logService.log({ action: 'push', contentType: uid, syncId: local.syncId, direction: 'push', status: 'error', message: err.message });
-            }
-          }
-
-          for (const { remote } of diff.toPull) {
-            try {
-              const filteredRecord = syncProfilesService.filterFieldsByPolicy(remote, fieldPolicies, 'pull');
-              await applyLocal(strapi, uid, filteredRecord, phaseFields);
-              pulled++;
-            } catch (err) {
-              errors++;
-              await logService.log({ action: 'pull', contentType: uid, syncId: remote.syncId, direction: 'pull', status: 'error', message: err.message });
-            }
-          }
-
-          for (const record of diff.toCreateRemote) {
-            try {
-              const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'push');
-              await applyRemote(remoteConfig, uid, filteredRecord, phaseFields);
-              pushed++;
-            } catch (err) {
-              errors++;
-              await logService.log({ action: 'create_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
-            }
-          }
-
-          for (const record of diff.toCreateLocal) {
-            try {
-              const filteredRecord = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'pull');
-              await applyLocal(strapi, uid, filteredRecord, phaseFields);
-              pulled++;
-            } catch (err) {
-              errors++;
-              await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
-            }
-          }
-
-          if (phase !== 'relations') {
-            for (const record of diff.toDeleteRemote) {
-              try {
-                await deleteRemote(remoteConfig, uid, record);
-                await logService.log({ action: 'delete_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'success', message: `Deleted remote record ${record.syncId}` });
-              } catch (err) {
-                errors++;
-                await logService.log({ action: 'delete_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
-              }
-            }
-
-            for (const record of diff.toDeleteLocal) {
-              try {
-                await deleteLocal(strapi, uid, record);
-                await logService.log({ action: 'delete_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'success', message: `Deleted local record ${record.syncId}` });
-              } catch (err) {
-                errors++;
-                await logService.log({ action: 'delete_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
-              }
-            }
-          }
+          pushed += counters.pushed;
+          pulled += counters.pulled;
+          errors += counters.errors;
+          unmatched += counters.unmatched;
         }
 
+        // A caller driving the global passes calls this once per pass. Deletion
+        // reconciliation and the watermark belong to the FINAL pass only:
+        // reconciling after pass 1 would delete records pass 2 still has to
+        // link, and moving the watermark early would hide pass 2's input.
+        const isFinalPass = phases.includes(PHASE_RELATIONS) || phases.includes(PHASE_ALL);
+
         let deletions = null;
-        if (syncDeletions) {
+        if (syncDeletions && isFinalPass) {
           deletions = await reconcileDeletions(uid, { direction, remoteConfig });
           errors += deletions.errors;
         }
 
-        await setLastSyncTimestamp(uid, syncStartTime);
+        if (isFinalPass) {
+          await setLastSyncTimestamp(uid, syncStartTime);
+        }
 
         const summary = {
           uid,
           pushed,
           pulled,
           errors,
+          unmatchedRelations: unmatched,
           hasFieldPolicies: !!fieldPolicies,
           executionStrategy,
+          phases,
           deletions,
           profile: profile ? { id: profile.id, name: profile.name } : null,
         };
@@ -609,7 +652,7 @@ module.exports = ({ strapi }) => {
           contentType: uid,
           direction,
           status: errors > 0 ? 'partial' : 'success',
-          message: `Pushed: ${pushed}, Pulled: ${pulled}, Errors: ${errors}${fieldPolicies ? ' (with field policies)' : ''}${executionStrategy === 'hybrid_two_pass' ? ' (hybrid two-pass)' : ''}`,
+          message: `Pushed: ${pushed}, Pulled: ${pulled}, Errors: ${errors}${fieldPolicies ? ' (with field policies)' : ''} (${executionStrategy})`,
           details: summary,
         });
 
@@ -635,6 +678,7 @@ module.exports = ({ strapi }) => {
      *
      * options:
      *   - profile: synthetic/real profile (direction, conflictStrategy, syncDeletions)
+     *   - phase: strategy phase for this chunk ('entities' | 'relations' | 'all')
      *   - page: 1-based page number (default 1)
      *   - pageSize: records per page (default from global settings or 100)
      *   - lastSyncAt: optional ISO timestamp; when omitted this runs a full
@@ -642,7 +686,7 @@ module.exports = ({ strapi }) => {
      *     incremental.
      *
      * Returns:
-     *   { uid, page, pageSize, pushed, pulled, errors, hasMore,
+     *   { uid, phase, page, pageSize, pushed, pulled, errors, unmatched, hasMore,
      *     localCount, remoteCount, remoteTotal, remotePageCount }
      */
     async syncContentTypePage(uid, options = {}) {
@@ -665,9 +709,8 @@ module.exports = ({ strapi }) => {
 
       const direction = profile?.direction || ctConfig.direction || 'both';
       const conflictStrategy = profile?.conflictStrategy || syncConfig.conflictStrategy || 'latest';
-      const syncDeletions = !!(profile?.syncDeletions);
       const fields = ctConfig.fields || [];
-      const phase = options.phase || 'all';
+      const phase = options.phase || PHASE_ALL;
       const phaseFields = selectFieldsForPhase(uid, fields, phase);
 
       let fieldPolicies = null;
@@ -693,76 +736,70 @@ module.exports = ({ strapi }) => {
       const localRecords = localPageRes.records || [];
       const remoteRecords = remotePageRes.records || [];
 
-      // NOTE: comparator works on the page slice only. Cross-side deletion
-      // detection is intentionally disabled here because a record missing
-      // from this page may live on another page; full-set deletion sync
-      // should use the incremental path instead.
+      // NOTE: the comparator works on this page slice only — a record missing
+      // from the page may simply live on another one, which is exactly why it
+      // never infers deletions. Deletions are reconciled from the full
+      // documentId snapshot once the content type has finished.
       const diff = compareRecords(localRecords, remoteRecords, {
         direction,
         conflictStrategy,
-        syncDeletions: false,
+        phase,
       });
 
-      for (const { local } of diff.toPush) {
-        try {
-          const filtered = syncProfilesService.filterFieldsByPolicy(local, fieldPolicies, 'push');
-          await applyRemote(remoteConfig, uid, filtered, phaseFields);
-          pushed++;
-        } catch (err) {
-          errors++;
-          await logService.log({ action: 'push', contentType: uid, syncId: local.syncId, direction: 'push', status: 'error', message: err.message });
-        }
-      }
-
-      for (const { remote } of diff.toPull) {
-        try {
-          const filtered = syncProfilesService.filterFieldsByPolicy(remote, fieldPolicies, 'pull');
-          await applyLocal(strapi, uid, filtered, phaseFields);
-          pulled++;
-        } catch (err) {
-          errors++;
-          await logService.log({ action: 'pull', contentType: uid, syncId: remote.syncId, direction: 'pull', status: 'error', message: err.message });
-        }
-      }
-
-      for (const record of diff.toCreateRemote) {
+      const pushRecord = async (record, action) => {
         try {
           const filtered = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'push');
           await applyRemote(remoteConfig, uid, filtered, phaseFields);
           pushed++;
         } catch (err) {
           errors++;
-          await logService.log({ action: 'create_remote', contentType: uid, syncId: record.syncId, direction: 'push', status: 'error', message: err.message });
+          await logService.log({ action, contentType: uid, syncId: record.syncId || record.documentId, direction: 'push', status: 'error', message: `[${phase}] ${err.message}` });
         }
-      }
+      };
 
-      for (const record of diff.toCreateLocal) {
+      const pullRecord = async (record, action) => {
         try {
           const filtered = syncProfilesService.filterFieldsByPolicy(record, fieldPolicies, 'pull');
           await applyLocal(strapi, uid, filtered, phaseFields);
           pulled++;
         } catch (err) {
           errors++;
-          await logService.log({ action: 'create_local', contentType: uid, syncId: record.syncId, direction: 'pull', status: 'error', message: err.message });
+          await logService.log({ action, contentType: uid, syncId: record.syncId || record.documentId, direction: 'pull', status: 'error', message: `[${phase}] ${err.message}` });
         }
-      }
+      };
+
+      for (const { local } of diff.toPush) await pushRecord(local, 'push');
+      for (const { remote } of diff.toPull) await pullRecord(remote, 'pull');
+      for (const record of diff.toCreateRemote) await pushRecord(record, 'create_remote');
+      for (const record of diff.toCreateLocal) await pullRecord(record, 'create_local');
 
       // hasMore is the OR of both sides so we keep paging until both are drained
       const hasMore = !!(localPageRes.hasMore || remotePageRes.hasMore);
 
       return {
         uid,
+        phase,
         page,
         pageSize,
         pushed,
         pulled,
         errors,
+        unmatched: diff.unmatched || 0,
         hasMore,
         localCount: localRecords.length,
         remoteCount: remoteRecords.length,
         remoteTotal: remotePageRes.total,
         remotePageCount: remotePageRes.pageCount,
       };
+    },
+
+    /**
+     * Whether a content type declares owner-side relations, i.e. whether the
+     * relations pass has anything to do for it. Used by the bulk-transfer
+     * planner so it doesn't emit empty relation chunks.
+     */
+    hasOwnerRelations(uid, fields) {
+      return hasOwnerRelations(uid, fields);
     },
 
     /**

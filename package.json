@@ -73,7 +73,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "node --test \"tests/*.test.js\""
   },
   "dependencies": {
     "secure-keystore-js": "^1.1.0"

@@ -135,7 +135,57 @@ module.exports = ({ strapi }) => ({
     }
   },
 
-  // ── Morph link sync (documentId-based mapping) ───────────────────────────
+  // ── Owner-side entity → file links (current media link strategy) ─────────
+
+  /**
+   * GET /media-sync/entity-media-links?uid=…&page=…&pageSize=…
+   * Called by the peer during a pull. Returns one page of media links for a
+   * single owning content type.
+   */
+  async getEntityMediaLinks(ctx) {
+    try {
+      const { uid, page, pageSize } = ctx.query || {};
+      if (!uid) return ctx.badRequest('uid query parameter is required');
+      const data = await service(strapi).exportEntityMediaLinks({
+        uid,
+        page: Number(page) || 1,
+        pageSize: Number(pageSize) || 100,
+      });
+      ctx.body = { data };
+    } catch (err) {
+      ctx.throw(400, err.message);
+    }
+  },
+
+  /**
+   * POST /media-sync/entity-media-links/apply
+   * Called by the peer during a push. HMAC-signed like /receive — applying
+   * links mutates content, so a bare API token must not be enough.
+   */
+  async applyEntityMediaLinks(ctx) {
+    try {
+      const links = ctx.request.body?.links || [];
+      ctx.body = { data: await service(strapi).applyEntityMediaLinks(links) };
+    } catch (err) {
+      ctx.throw(400, err.message);
+    }
+  },
+
+  /**
+   * GET /media-sync/link-scope
+   * The owning content types whose media links participate in a run.
+   */
+  async getMediaLinkScope(ctx) {
+    try {
+      const uids = (ctx.query?.uids || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const scope = await service(strapi).resolveMediaLinkScope(uids);
+      ctx.body = { data: scope };
+    } catch (err) {
+      ctx.throw(400, err.message);
+    }
+  },
+
+  // ── Legacy morph link sync (back-compat with older peers only) ───────────
 
   async getMorphLinks(ctx) {
     try {

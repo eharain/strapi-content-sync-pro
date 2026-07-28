@@ -2,6 +2,11 @@
 
 This document consolidates and refines the agreed approach for sync reliability, dependency handling, content-type enabling, and profile editing.
 
+> **Status: implemented.** The contract lives in `server/src/utils/strategy.js` and every
+> entry point reads its phase plan and dependency rules from there. See
+> [Implementation notes](#8-implementation-notes) at the end for where each section landed
+> and the one rule that had to be corrected against Strapi's own source.
+
 ## 1) Core Execution Strategy (Hybrid Two-Pass)
 
 **Consolidated rule:** Use a hybrid two-pass sync approach: **pass 1 syncs core entities, pass 2 syncs one-direction dependencies from owner/declaring side only** (entities first, relations second).
@@ -125,3 +130,45 @@ Editable advanced settings include:
 - Keep dependency scope constrained (depth=1, in-scope targets only).
 - Add dependency-aware enable-all-direct-dependencies option.
 - Preserve and improve advanced profile editing.
+
+---
+
+## 8) Implementation notes
+
+### Where each section landed
+
+| Section | Implementation |
+| --- | --- |
+| 1 — hybrid two-pass contract | `server/src/utils/strategy.js` — phases, default strategy, dependency depth, owner-side predicate. Every runner imports it; the rules cannot drift per entry point. |
+| 1 — media in the two-pass model | `sync-media.js`: `syncMediaViaUrl` is phase-gated (`media_core` / `media_links`), `runProfilePhase` runs one pass. Morph traversal is out of the run path. |
+| 2 — dependency rules | `dependency-resolver.js`: `getDirectDependencyTargets` / `getConstrainedDependencyPlan`. Depth is fixed, non-owner sides / self-references / plugin- and admin-scoped targets are skipped **with a reason**, never silently. |
+| 3 — execution ordering | The passes are **global, not per content type**: `sync.js:syncNow` and `sync-execution.js:executeProfile` run pass 1 for every type in scope before pass 2 starts, and `bulk-transfer.js:buildPlan` emits entity chunks for all types, then core media, then relation chunks, then media links. |
+| 4 — enabling content types | `sync-config.js:previewEnable` / `enable` / `disable` + `POST /sync-config/enable-preview`, `/enable`, `/disable`. The Content Types tab shows the to-enable / already-enabled / skipped preview before applying. |
+| 5 — profiles and advanced editing | Profiles stay fully editable; the enable dialog offers quick defaults or "enable + configure now". Execution mode, dependency-sync toggle and the (read-only) depth are edited on the profile itself. |
+| 6 — UI hints | `GET /strategy` serves `describeContract()`, so the admin hints are generated from the same source as the behaviour. |
+
+### One rule corrected against Strapi's source
+
+The draft of this approach read "owner/declaring side" as *neither `mappedBy` nor `inversedBy`*.
+That is wrong. Per `@strapi/database/dist/metadata/relations.js`
+(`isOwner = !isBidirectional || hasInversedBy`), the side declaring **`inversedBy` IS the
+owner** of a bidirectional relation — only `mappedBy` marks the inverse. The stricter reading
+excluded the owner side of every bidirectional relation, so those relations were never synced
+in either direction (fixed in `a810890`; guarded by a test in `tests/strategy.test.js`).
+
+Relation *writes* additionally skip `plugin::` and `admin::` targets: one unresolvable
+documentId fails the entire record's relation write, not just that field. The dependency
+planner applies the same exclusion, so planner and writer agree on what is syncable.
+
+### Ordering rationale
+
+Per-content-type two-pass is not sufficient. A relation's target may belong to a content type
+that sorts *after* the referrer, or to a dependency cycle where no ordering exists. Draining
+every entity in scope before writing any link is what makes pass 2 resolvable in all cases —
+hence the global passes.
+
+### Tests
+
+`npm test` (`node --test`) — 31 cases over the strategy contract, the comparator's
+phase semantics, and the dependency constraint rules, including regression guards for the
+owner-side predicate and for one-sided records being creates rather than deletes.

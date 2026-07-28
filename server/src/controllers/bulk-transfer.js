@@ -13,6 +13,7 @@ module.exports = ({ strapi }) => ({
       const data = await svc(strapi).preview({
         direction: body.direction,
         scopes: body.scopes,
+        executionStrategy: body.executionStrategy,
       });
       ctx.body = { data };
     } catch (err) {

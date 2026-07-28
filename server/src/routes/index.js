@@ -16,9 +16,14 @@ const contentApiRoutes = [
   { method: 'GET',  path: '/workflow-notifications/templates', handler: 'workflowNotifications.getTemplates', config: { policies: [] } },
   { method: 'POST', path: '/workflow-notifications/seed',      handler: 'workflowNotifications.seedTemplates', config: { policies: [] } },
 
-  // Media morph-link sync (called by the peer instance during runProfile).
-  // The mutating apply endpoint is HMAC-signed like /receive so a bare API
-  // token can't forge file↔entity links.
+  // Owner-side entity→file media links (called by the peer during the media
+  // links pass). The mutating apply endpoint is HMAC-signed like /receive so a
+  // bare API token can't forge file↔entity links.
+  { method: 'GET',  path: '/media-sync/entity-media-links',       handler: 'syncMedia.getEntityMediaLinks',   config: { policies: [] } },
+  { method: 'POST', path: '/media-sync/entity-media-links/apply', handler: 'syncMedia.applyEntityMediaLinks', config: { policies: [], middlewares: ['plugin::strapi-content-sync-pro.verifySignature'] } },
+
+  // Legacy morph-link sync. Superseded by the owner-side endpoints above and
+  // kept only so a peer on an older plugin version can still exchange links.
   { method: 'GET',  path: '/media-sync/morph-links',       handler: 'syncMedia.getMorphLinks',   config: { policies: [] } },
   { method: 'POST', path: '/media-sync/morph-links/apply', handler: 'syncMedia.applyMorphLinks', config: { policies: [], middlewares: ['plugin::strapi-content-sync-pro.verifySignature'] } },
 
@@ -40,8 +45,16 @@ const adminRoutes = [
   { method: 'GET', path: '/content-types', handler: 'contentTypeDiscovery.find', config: { policies: [] } },
 
   // Sync configuration
+  // NOTE: literal sub-paths must be registered before the bare path so koa-router
+  // (first match wins) doesn't shadow them.
+  { method: 'POST', path: '/sync-config/enable-preview', handler: 'syncConfig.enablePreview', config: { policies: [] } },
+  { method: 'POST', path: '/sync-config/enable',         handler: 'syncConfig.enable',        config: { policies: [] } },
+  { method: 'POST', path: '/sync-config/disable',        handler: 'syncConfig.disable',       config: { policies: [] } },
   { method: 'GET',  path: '/sync-config', handler: 'syncConfig.get', config: { policies: [] } },
   { method: 'POST', path: '/sync-config', handler: 'syncConfig.set', config: { policies: [] } },
+
+  // Execution strategy contract (drives UI hints)
+  { method: 'GET',  path: '/strategy', handler: 'syncConfig.getStrategy', config: { policies: [] } },
 
   // Manual sync trigger
   { method: 'POST', path: '/sync-now', handler: 'sync.syncNow', config: { policies: [] } },
@@ -113,6 +126,9 @@ const adminRoutes = [
   { method: 'POST',   path: '/media-sync/profiles/:id/resume',  handler: 'syncMedia.resumeProfile',       config: { policies: [] } },
   { method: 'POST',   path: '/media-sync/profiles/:id/cancel',  handler: 'syncMedia.cancelProfile',       config: { policies: [] } },
   { method: 'POST',   path: '/media-sync/run-active',           handler: 'syncMedia.runActiveProfiles',   config: { policies: [] } },
+  { method: 'GET',    path: '/media-sync/entity-media-links',       handler: 'syncMedia.getEntityMediaLinks',   config: { policies: [] } },
+  { method: 'POST',   path: '/media-sync/entity-media-links/apply', handler: 'syncMedia.applyEntityMediaLinks', config: { policies: [] } },
+  { method: 'GET',    path: '/media-sync/link-scope',           handler: 'syncMedia.getMediaLinkScope',   config: { policies: [] } },
   { method: 'GET',    path: '/media-sync/morph-links',          handler: 'syncMedia.getMorphLinks',       config: { policies: [] } },
   { method: 'POST',   path: '/media-sync/morph-links/apply',    handler: 'syncMedia.applyMorphLinks',     config: { policies: [] } },
   { method: 'GET',    path: '/media-sync/global-settings',       handler: 'syncMedia.getGlobalSettings',  config: { policies: [] } },

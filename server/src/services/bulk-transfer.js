@@ -19,9 +19,29 @@
  * cancels any running job.
  */
 
+const {
+  PHASE_ALL,
+  PHASE_ENTITIES,
+  PHASE_RELATIONS,
+  MEDIA_PHASE_CORE,
+  MEDIA_PHASE_LINKS,
+  contentPhasesFor,
+  resolveExecutionStrategy,
+} = require('../utils/strategy');
+
 const PLUGIN_ID = 'strapi-content-sync-pro';
 const HISTORY_STORE_KEY = 'bulk-transfer-history';
 const HISTORY_MAX = 25;
+
+// Chunk labels carry their phase so a resumed run can match chunks back to
+// history entries, and so the UI shows which pass it is on.
+const PHASE_LABELS = {
+  [PHASE_ENTITIES]: 'entities',
+  [PHASE_RELATIONS]: 'relations',
+  [PHASE_ALL]: 'all',
+  [MEDIA_PHASE_CORE]: 'files',
+  [MEDIA_PHASE_LINKS]: 'links',
+};
 
 // Module-level in-memory job registry. Single active job at a time is enough
 // for this workflow; additional jobs may be queued/tracked by id if needed.
@@ -82,6 +102,7 @@ module.exports = ({ strapi }) => {
       syncDeletions: job.syncDeletions,
       autoContinue: job.autoContinue,
       conflictStrategy: job.conflictStrategy,
+      executionStrategy: job.executionStrategy,
       createdAt: job.createdAt,
       startedAt: job.startedAt,
       completedAt: job.completedAt,
@@ -95,6 +116,7 @@ module.exports = ({ strapi }) => {
         index: c.index,
         kind: c.kind,
         uid: c.uid || null,
+        phase: c.phase || null,
         profileId: c.profileId || null,
         label: c.label,
         // Never persist transient 'running' — if the process is paused or
@@ -141,46 +163,9 @@ module.exports = ({ strapi }) => {
   }
 
   function orderByDependencies(uids) {
-    const depResolver = plugin().service('dependencyResolver');
-    const uidSet = new Set(uids);
-    const inDegree = new Map();
-    const adjacency = new Map();
-
-    uids.forEach((uid) => {
-      inDegree.set(uid, 0);
-      adjacency.set(uid, []);
-    });
-
-    for (const uid of uids) {
-      try {
-        const rels = depResolver.analyzeContentType(uid)?.relations || [];
-        for (const rel of rels) {
-          const depUid = rel.target;
-          if (!uidSet.has(depUid) || depUid === uid) continue;
-          adjacency.get(depUid).push(uid);
-          inDegree.set(uid, (inDegree.get(uid) || 0) + 1);
-        }
-      } catch (_) {
-        // Ignore bad schema and keep fallback order.
-      }
-    }
-
-    const queue = uids.filter((uid) => (inDegree.get(uid) || 0) === 0);
-    const ordered = [];
-    while (queue.length > 0) {
-      const uid = queue.shift();
-      ordered.push(uid);
-      for (const next of adjacency.get(uid) || []) {
-        const deg = (inDegree.get(next) || 0) - 1;
-        inDegree.set(next, deg);
-        if (deg === 0) queue.push(next);
-      }
-    }
-
-    for (const uid of uids) {
-      if (!ordered.includes(uid)) ordered.push(uid);
-    }
-    return ordered;
+    // Single shared implementation — owner-side, in-scope edges only, so bulk
+    // transfer and sync-now order content types identically.
+    return plugin().service('dependencyResolver').orderByDependencies(uids);
   }
 
   function listMediaProfilesToRun() {
@@ -192,51 +177,114 @@ module.exports = ({ strapi }) => {
     return syncMedia.getProfiles();
   }
 
-  async function buildPlan({ direction, scopes }) {
+  /**
+   * Expand a job into ordered chunks following the strategy contract's GLOBAL
+   * two-pass ordering:
+   *
+   *   pass 1 — every selected content type's ENTITIES, then core media files
+   *   pass 2 — every selected content type's RELATIONS, then media links
+   *
+   * The passes are global rather than per content type on purpose: a relation
+   * can only be linked once its target exists, and the target may belong to a
+   * content type that sorts after this one (or to a cycle, where no ordering
+   * would help). Draining all entities first makes every link resolvable.
+   *
+   * A one-pass job collapses to a single 'all' chunk per content type.
+   */
+  async function buildPlan({ direction, scopes, executionStrategy }) {
+    const strategy = resolveExecutionStrategy(executionStrategy);
+    const phases = contentPhasesFor(strategy);
+    const syncService = plugin().service('sync');
     const chunks = [];
 
+    // ── Collect the content-bearing targets, in dependency order ───────────
+    const contentTargets = [];
     if (scopes.content) {
-      const orderedContentTypes = orderByDependencies(listSyncableContentTypeUids());
-      for (const uid of orderedContentTypes) {
-        chunks.push({ kind: 'content', uid, label: uid });
+      for (const uid of orderByDependencies(listSyncableContentTypeUids())) {
+        contentTargets.push({ kind: 'content', uid });
       }
     }
-
     if (scopes.users) {
       const uid = 'plugin::users-permissions.user';
-      if (strapi.contentTypes?.[uid]) {
-        chunks.push({ kind: 'users', uid, label: uid });
-      }
+      if (strapi.contentTypes?.[uid]) contentTargets.push({ kind: 'users', uid });
     }
-
     if (scopes.admins) {
       const uid = 'admin::user';
       if (strapi.contentTypes?.[uid]) {
-        chunks.push({
+        contentTargets.push({
           kind: 'admins',
           uid,
-          label: uid,
           warning: 'admin::user transfer is best-effort; passwords/roles may not be portable.',
         });
       }
     }
 
-    if (scopes.media) {
-      const profiles = await listMediaProfilesToRun();
-      const active = (profiles || []).filter((p) => p.active && p.strategy !== 'disabled');
-      if (active.length === 0) {
+    const activeMediaProfiles = scopes.media
+      ? ((await listMediaProfilesToRun()) || []).filter((p) => p.active && p.strategy !== 'disabled')
+      : [];
+
+    const pushContentChunk = (target, phase) => {
+      chunks.push({
+        kind: target.kind,
+        uid: target.uid,
+        phase,
+        label: `${target.uid} (${PHASE_LABELS[phase] || phase})`,
+        warning: target.warning,
+      });
+    };
+
+    const pushMediaChunks = (mediaPhase) => {
+      if (!scopes.media) return;
+      if (activeMediaProfiles.length === 0) {
+        // Only warn once, on the first media pass.
+        if (mediaPhase === MEDIA_PHASE_CORE || phases.length === 1) {
+          chunks.push({
+            kind: 'media',
+            profileId: null,
+            phase: mediaPhase,
+            label: 'media:active',
+            warning: 'No active media profiles found. Activate one in the Media tab first.',
+          });
+        }
+        return;
+      }
+      for (const p of activeMediaProfiles) {
         chunks.push({
           kind: 'media',
-          profileId: null,
-          label: 'media:active',
-          warning: 'No active media profiles found. Activate one in the Media tab first.',
+          profileId: p.id,
+          phase: mediaPhase,
+          label: `media:${p.name || p.id} (${PHASE_LABELS[mediaPhase] || mediaPhase})`,
         });
-      } else {
-        for (const p of active) {
-          chunks.push({ kind: 'media', profileId: p.id, label: `media:${p.name || p.id}` });
-        }
       }
+    };
+
+    if (strategy === 'one_pass') {
+      for (const target of contentTargets) pushContentChunk(target, PHASE_ALL);
+      pushMediaChunks(MEDIA_PHASE_CORE);
+      pushMediaChunks(MEDIA_PHASE_LINKS);
+    } else {
+      // ── Pass 1: entities everywhere, then the files they will point at ──
+      for (const target of contentTargets) pushContentChunk(target, PHASE_ENTITIES);
+      pushMediaChunks(MEDIA_PHASE_CORE);
+
+      // ── Pass 2: owner-side relations, then owner-side media links ───────
+      for (const target of contentTargets) {
+        // A type with no owner-side relations has nothing to do in pass 2;
+        // emitting the chunk would just re-page both sides for no writes.
+        if (!syncService.hasOwnerRelations(target.uid)) continue;
+        pushContentChunk(target, PHASE_RELATIONS);
+      }
+      pushMediaChunks(MEDIA_PHASE_LINKS);
     }
+
+    // Deletions are reconciled from the full documentId set, once per content
+    // type, on its LAST chunk — running it in pass 1 would delete records the
+    // pass has not created yet.
+    const lastChunkForUid = new Map();
+    chunks.forEach((c) => {
+      if (c.uid) lastChunkForUid.set(c.uid, c);
+    });
+    for (const chunk of lastChunkForUid.values()) chunk.reconcileDeletions = true;
 
     // Tag index on each chunk so the UI can track progress reliably.
     chunks.forEach((c, i) => {
@@ -256,9 +304,11 @@ module.exports = ({ strapi }) => {
       contentType: chunk.uid,
       direction: job.direction, // 'pull' or 'push'
       conflictStrategy: job.conflictStrategy || 'latest',
+      executionStrategy: job.executionStrategy,
       isSimple: true,
       syncDeletions: !!job.syncDeletions,
     };
+    const phase = chunk.phase || PHASE_ALL;
 
     // Initialize per-chunk page progress (resumable across pause cycles).
     chunk.page = chunk.page || 0;                 // last completed page
@@ -286,6 +336,7 @@ module.exports = ({ strapi }) => {
       const nextPage = chunk.page + 1;
       const res = await syncService.syncContentTypePage(chunk.uid, {
         profile: syntheticProfile,
+        phase,
         page: nextPage,
         pageSize: chunk.pageSize || undefined,
       });
@@ -295,6 +346,7 @@ module.exports = ({ strapi }) => {
       chunk.pushed += res.pushed;
       chunk.pulled += res.pulled;
       chunk.errors += res.errors;
+      chunk.unmatched = (chunk.unmatched || 0) + (res.unmatched || 0);
       if (res.remotePageCount && !chunk.pagesTotal) {
         chunk.pagesTotal = res.remotePageCount;
       }
@@ -307,8 +359,10 @@ module.exports = ({ strapi }) => {
     }
 
     // All pages transferred — the per-page comparator can't detect deletions,
-    // so reconcile the full documentId set now (only when the toggle is on).
-    if (job.syncDeletions) {
+    // so reconcile the full documentId set now (only when the toggle is on,
+    // and only on this content type's LAST chunk so pass 1 never deletes
+    // records that pass 2 is still about to link).
+    if (job.syncDeletions && chunk.reconcileDeletions !== false) {
       try {
         const del = await syncService.reconcileDeletions(chunk.uid, { direction: job.direction });
         chunk.deletedRemote = (chunk.deletedRemote || 0) + del.deletedRemote;
@@ -349,11 +403,18 @@ module.exports = ({ strapi }) => {
     chunk.errors = chunk.errors || 0;
     chunk.lastPageAt = now();
 
+    // Media runs the same phase as the pass it belongs to: core files with the
+    // entities pass, entity→file links with the relations pass. The link pass
+    // is scoped to the content types this job is actually transferring.
+    const scopeUids = job.chunks.filter((c) => c.uid && c.selected !== false).map((c) => c.uid);
+
     let summary;
-    if (syncMedia.runProfile) {
-      summary = await syncMedia.runProfile(chunk.profileId);
+    if (chunk.phase && syncMedia.runProfilePhase) {
+      summary = await syncMedia.runProfilePhase(chunk.profileId, chunk.phase, { scopeUids });
+    } else if (syncMedia.runProfile) {
+      summary = await syncMedia.runProfile(chunk.profileId, { scopeUids });
     } else if (syncMedia.run) {
-      summary = await syncMedia.run({ profileId: chunk.profileId });
+      summary = await syncMedia.run({ profileId: chunk.profileId, scopeUids });
     } else {
       throw new Error('Media sync service does not expose runProfile/run');
     }
@@ -364,16 +425,16 @@ module.exports = ({ strapi }) => {
     const pushed = Number(summary?.pushed) || 0;
     const pulled = Number(summary?.pulled) || 0;
     const dbRowsUpdated = Number(summary?.dbRowsUpdated) || 0;
-    const morphLinksApplied = Number(summary?.morphLinksApplied) || 0;
+    const mediaLinksApplied = Number(summary?.mediaLinksApplied) || 0;
     const errorsArr = Array.isArray(summary?.errors) ? summary.errors : [];
 
     // For media, "pushed/pulled" from the summary reflect file-byte ops.
-    // Add DB row and morph link updates into the directional counter so
-    // the UI's total isn't misleadingly zero for DB-rows-only profiles.
+    // Add DB row and link updates into the directional counter so the UI's
+    // total isn't misleadingly zero for DB-rows-only or link-only chunks.
     if (job.direction === 'push') {
-      chunk.pushed += pushed + dbRowsUpdated + morphLinksApplied;
+      chunk.pushed += pushed + dbRowsUpdated + mediaLinksApplied;
     } else {
-      chunk.pulled += pulled + dbRowsUpdated + morphLinksApplied;
+      chunk.pulled += pulled + dbRowsUpdated + mediaLinksApplied;
     }
     chunk.errors += errorsArr.length;
     chunk.page = 1;
@@ -472,7 +533,8 @@ module.exports = ({ strapi }) => {
 
       await assertRemoteConfigured();
 
-      const chunks = await buildPlan({ direction, scopes });
+      const executionStrategy = resolveExecutionStrategy(options.executionStrategy);
+      const chunks = await buildPlan({ direction, scopes, executionStrategy });
       if (chunks.length === 0) {
         throw new Error('No chunks produced for the selected scopes.');
       }
@@ -515,6 +577,7 @@ module.exports = ({ strapi }) => {
         syncDeletions: !!options.syncDeletions,
         autoContinue: !!options.autoContinue,
         conflictStrategy: options.conflictStrategy || 'latest',
+        executionStrategy,
         pageSize: Number(options.pageSize) || null,
         status: 'running',
         createdAt: now(),
@@ -686,6 +749,7 @@ module.exports = ({ strapi }) => {
         scopes: job.scopes,
         syncDeletions: job.syncDeletions,
         autoContinue: job.autoContinue,
+        executionStrategy: job.executionStrategy,
         cursor: job.cursor,
         total: job.chunks.length,
         createdAt: job.createdAt,
@@ -696,6 +760,7 @@ module.exports = ({ strapi }) => {
           index: c.index,
           kind: c.kind,
           uid: c.uid || null,
+          phase: c.phase || null,
           profileId: c.profileId || null,
           label: c.label,
           status: c.status,
@@ -718,7 +783,8 @@ module.exports = ({ strapi }) => {
      * Return a preview plan without creating a job. Used by the UI to show
      * chunk counts before starting.
      */
-    async preview({ direction, scopes }) {
+    async preview({ direction, scopes, executionStrategy }) {
+      const strategy = resolveExecutionStrategy(executionStrategy);
       const chunks = await buildPlan({
         direction: direction === 'push' ? 'push' : 'pull',
         scopes: {
@@ -727,8 +793,19 @@ module.exports = ({ strapi }) => {
           users: !!scopes?.users,
           admins: !!scopes?.admins,
         },
+        executionStrategy: strategy,
       });
-      return { total: chunks.length, chunks };
+      return {
+        total: chunks.length,
+        executionStrategy: strategy,
+        passes: strategy === 'one_pass'
+          ? [{ label: 'Single pass', chunks: chunks.length }]
+          : [
+              { label: 'Pass 1 — entities + core media', chunks: chunks.filter((c) => c.phase === PHASE_ENTITIES || c.phase === MEDIA_PHASE_CORE).length },
+              { label: 'Pass 2 — relations + media links', chunks: chunks.filter((c) => c.phase === PHASE_RELATIONS || c.phase === MEDIA_PHASE_LINKS).length },
+            ],
+        chunks,
+      };
     },
 
     /**
@@ -769,6 +846,7 @@ module.exports = ({ strapi }) => {
         syncDeletions: overrides.syncDeletions ?? source.syncDeletions,
         autoContinue: overrides.autoContinue ?? source.autoContinue,
         conflictStrategy: overrides.conflictStrategy || source.conflictStrategy,
+        executionStrategy: overrides.executionStrategy || source.executionStrategy,
         selectedIndexes: Array.isArray(overrides.selectedIndexes)
           ? overrides.selectedIndexes
           : previouslySelected,
@@ -796,7 +874,8 @@ module.exports = ({ strapi }) => {
 
       // Rebuild the plan from the same scopes so chunk targets still exist.
       const direction = source.direction === 'push' ? 'push' : 'pull';
-      const freshChunks = await buildPlan({ direction, scopes: source.scopes });
+      const executionStrategy = resolveExecutionStrategy(overrides.executionStrategy || source.executionStrategy);
+      const freshChunks = await buildPlan({ direction, scopes: source.scopes, executionStrategy });
 
       // Merge prior per-chunk state onto the fresh plan by (kind,label).
       // Completed / skipped chunks stay that way; paused chunks keep their
@@ -864,6 +943,7 @@ module.exports = ({ strapi }) => {
         syncDeletions: !!source.syncDeletions,
         autoContinue: overrides.autoContinue ?? !!source.autoContinue,
         conflictStrategy: overrides.conflictStrategy || source.conflictStrategy || 'latest',
+        executionStrategy,
         cursor,
         chunks: freshChunks,
         errors: [],
@@ -893,6 +973,7 @@ module.exports = ({ strapi }) => {
         syncDeletions: !!source.syncDeletions,
         autoContinue: job.autoContinue,
         conflictStrategy: job.conflictStrategy,
+        executionStrategy: job.executionStrategy,
         selectedIndexes: freshChunks.filter((c) => c.selected !== false).map((c) => c.index),
       };
       return summary;
