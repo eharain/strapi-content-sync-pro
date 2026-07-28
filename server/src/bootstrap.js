@@ -1,6 +1,5 @@
 'use strict';
 
-const { ensureSyncId } = require('./utils/sync-id');
 const { isRemoteUpdate } = require('./utils/sync-guard');
 
 const bootstrap = ({ strapi }) => {
@@ -60,21 +59,19 @@ const bootstrap = ({ strapi }) => {
     }
   };
 
-  // Subscribe to DB lifecycle events for all content types
+  // Subscribe to DB lifecycle events for all content types.
+  //
+  // The loop-guard key is `${uid}:${documentId}` — matching exactly what
+  // applyLocal marks via markAsRemoteUpdate (server/src/utils/applier.js), which
+  // prefers documentId and only falls back to syncId for legacy installs that
+  // still have that column. No Rutba content type declares a `syncId`
+  // attribute, so Strapi's entity-manager silently drops it from `params.data`
+  // before insert (processData iterates known schema attributes only) — a
+  // record's `syncId` is therefore always undefined here, and keying the guard
+  // on it never matched applyLocal's mark, defeating the loop guard entirely
+  // whenever a profile's executionMode is 'live'. documentId is always present
+  // on every created/updated/deleted record and needs no schema change.
   strapi.db.lifecycles.subscribe({
-    /**
-     * Automatically generate a syncId (UUID) for every new
-     * record in an api:: content type that does not already have one.
-     */
-    async beforeCreate(event) {
-      const { model, params } = event;
-      if (!model.uid.startsWith('api::')) return;
-
-      if (params.data) {
-        ensureSyncId(params.data);
-      }
-    },
-
     /**
      * After a local record is created, push it to the remote
      * instance if live sync is enabled.
@@ -83,7 +80,7 @@ const bootstrap = ({ strapi }) => {
       const { model, result } = event;
       if (!model.uid.startsWith('api::')) return;
 
-      const key = `${model.uid}:${result.syncId}`;
+      const key = `${model.uid}:${result.documentId}`;
       if (isRemoteUpdate(key)) return;
 
       // Check if live sync is enabled
@@ -101,7 +98,7 @@ const bootstrap = ({ strapi }) => {
       const { model, result } = event;
       if (!model.uid.startsWith('api::')) return;
 
-      const key = `${model.uid}:${result.syncId}`;
+      const key = `${model.uid}:${result.documentId}`;
       if (isRemoteUpdate(key)) return;
 
       // Check if live sync is enabled
@@ -118,9 +115,9 @@ const bootstrap = ({ strapi }) => {
     async afterDelete(event) {
       const { model, result } = event;
       if (!model.uid.startsWith('api::')) return;
-      if (!result?.syncId) return;
+      if (!result?.documentId) return;
 
-      const key = `${model.uid}:${result.syncId}`;
+      const key = `${model.uid}:${result.documentId}`;
       if (isRemoteUpdate(key)) return;
 
       // Check if live sync is enabled
