@@ -367,3 +367,6 @@ FodyWeavers.xsd
 *.sql
 *.tsv
 *.txt
+# Local test-environment notes (contain credentials - never commit)
+test-environments-setup.md
+test-enviroments-setup.txt
