@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.2.1
+
+> 1.2.0 was tagged in git but never reached npm, so installing 1.2.1 brings both
+> releases — including the single-side media-link fix described under 1.2.0.
 
 ### Fixed
 
@@ -34,6 +37,16 @@
 - Reworked the README landing view: centred masthead, badge row, quick-link nav,
   a full-width hero, and a screenshot grid that is visible by default (it was
   collapsed behind a `<details>` toggle) with each tile linking into the gallery.
+- Converted the test environment notes to markdown and split them into the **two**
+  methods that actually exist: paired mode (both instances run the plugin) and
+  single-side mode (the peer runs none). The paired testbed cannot exercise
+  single-side at all, which is what allowed the media-link bug fixed in 1.2.0 to
+  ship unnoticed.
+
+### Removed
+
+- `tmp-*` scratch files left over from manual database inspection. Nothing
+  referenced them, and all but one were already untracked.
 
 ## 1.2.0
 
