@@ -26,6 +26,18 @@
   than an opaque remote 404. (Single-side profiles are pull-only, so this is
   reachable only through a hand-edited profile.)
 
+### Documentation
+
+- The README and in-app Help still described **morph-link remapping** as the
+  media-link mechanism. 1.1.0 replaced that with owner-side entity → file links;
+  both now document the actual behaviour — set semantics, `documentId` →
+  name+ext+size file matching, and the rule that a field which resolves to no
+  local file is left untouched rather than cleared.
+- Documented where links are read from per deployment mode, and that single-side
+  mode needs `find` on every content type that owns media fields — not just
+  Upload permissions. Added two troubleshooting rows for the symptom in #1
+  (files pull, links stay at 0).
+
 ## 1.1.0
 
 Reliability release. Relation and media syncing were reworked around an explicit
