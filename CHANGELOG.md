@@ -1,6 +1,15 @@
 # Changelog
 
-## 1.1.1
+## 1.2.0
+
+Verified end to end against two live Strapi 5.52.0 instances on MySQL 8.0.27,
+where the source instance did **not** have this plugin installed. With the 1.1.0
+code the run reproduced the reported failure exactly (`mediaLinksApplied: 0` and
+a `media_links_legacy` 404); swapping in only the fixed file, and changing
+nothing else, applied all 7 entity links across `cover` (single media),
+`gallery` (multiple media) and `avatar` (a non-Draft&Publish type). A row-level
+comparison of both databases confirmed all 11 document/field pairs matched, and
+unrelated local media links on the target were left untouched.
 
 ### Fixed
 
