@@ -183,9 +183,31 @@ const Layout = () => {
             <Divider />
             <Box paddingLeft={8} paddingRight={8} paddingTop={5} paddingBottom={7}>
                 <Typography variant="pi" textColor="neutral500">
-                    Content Sync Pro · Contact{' '}
-                    <Typography variant="pi" textColor="primary600" tag="a" href="mailto:eharain@yahoo.com">
-                        eharain@yahoo.com
+                    Content Sync Pro by{' '}
+                    <Typography
+                        variant="pi"
+                        textColor="primary600"
+                        tag="a"
+                        href="https://tech-style.co/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        Tech Style Ltd
+                    </Typography>
+                    {' · '}
+                    <Typography
+                        variant="pi"
+                        textColor="primary600"
+                        tag="a"
+                        href="https://tech-style.co/products.html#content-sync"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        Product page
+                    </Typography>
+                    {' · Contact '}
+                    <Typography variant="pi" textColor="primary600" tag="a" href="mailto:hello@tech-style.co">
+                        hello@tech-style.co
                     </Typography>
                     {' · '}
                     <Typography

@@ -1228,9 +1228,28 @@ http://localhost:1337</CodeBlock>
                 </DocLink>
               </Box>
               <Box paddingTop={2}>
-                <DocLink href="https://github.com/eharain/strapi-plugins-strapi-content-sync-pro/issues">
+                <DocLink href="https://github.com/eharain/strapi-content-sync-pro/issues">
                   Report an Issue on GitHub
                 </DocLink>
+              </Box>
+            </Box>
+
+            <Box paddingTop={4}>
+              <Typography variant="delta" tag="h3">Support &amp; Contact</Typography>
+              <Box paddingTop={2}>
+                <DocLink href="https://tech-style.co/products.html#content-sync">
+                  Content Sync Pro product page — tech-style.co
+                </DocLink>
+              </Box>
+              <Box paddingTop={2}>
+                <DocLink href="https://tech-style.co/contact.html">
+                  Contact Tech Style Ltd
+                </DocLink>
+              </Box>
+              <Box paddingTop={2}>
+                <Typography variant="omega" textColor="primary600" tag="a" href="mailto:hello@tech-style.co">
+                  hello@tech-style.co
+                </Typography>
               </Box>
             </Box>
           </Box>
