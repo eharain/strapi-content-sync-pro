@@ -8,6 +8,9 @@ A powerful Strapi v5 plugin to copy, migrate, and live-sync content, media, and 
 
 [![npm version](https://badge.fury.io/js/strapi-content-sync-pro.svg)](https://www.npmjs.com/package/strapi-content-sync-pro)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Product page](https://img.shields.io/badge/Product%20page-tech--style.co-0b7285.svg)](https://tech-style.co/products.html#content-sync)
+
+Product page: **[tech-style.co/products.html#content-sync](https://tech-style.co/products.html#content-sync)** · Contact: **[hello@tech-style.co](mailto:hello@tech-style.co)**
 
 ## Video
 
@@ -319,13 +322,23 @@ Check the **Logs** tab for detailed sync history including:
 Contributions are welcome! Please open an issue or submit a pull request. 
 
 
+## Support
+
+- Product page: [tech-style.co/products.html#content-sync](https://tech-style.co/products.html#content-sync)
+- Email: [hello@tech-style.co](mailto:hello@tech-style.co)
+- Contact form: [tech-style.co/contact.html](https://tech-style.co/contact.html)
+- Bugs & feature requests: [GitHub Issues](https://github.com/eharain/strapi-content-sync-pro/issues)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
 ## Author
 
-**Ejaz Husain Arain**
+**Ejaz Husain Arain** — [Tech Style Ltd](https://tech-style.co/)
+- Website: [tech-style.co](https://tech-style.co/)
+- Email: [hello@tech-style.co](mailto:hello@tech-style.co)
 - GitHub: [@eharain](https://github.com/eharain)
 - LinkedIn: [Ejaz Husain Arain](https://www.linkedin.com/in/eharain/)
-- Email: eharain@yahoo.com
+
+<sub>Tech Style Ltd · Registered in England &amp; Wales · Company No. 11101491</sub>
