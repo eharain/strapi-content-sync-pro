@@ -63,6 +63,11 @@ Applied interpretation:
 - Ordering remains dependency-aware and stable.
 - For relation-heavy types, keep lower priority (higher order number) where ordering tie-break is needed.
 
+The two passes are visible in **Sync → Bulk transfer**, which plans one chunk per
+content type per pass — entities first, then relations:
+
+![Sync → Bulk transfer chunk plan](./10-sync-bulk-transfer.png)
+
 ---
 
 ## 4) Enabling Content Types
@@ -85,6 +90,10 @@ Recommended UX:
   - already enabled
   - skipped/out-of-scope
 
+Where this lands in the UI — **Configure → Content types**:
+
+![Configure → Content types](./06-configure-content-types.png)
+
 ---
 
 ## 5) Sync Profiles and Advanced Editing
@@ -105,6 +114,10 @@ Editable advanced settings include:
 - dependency sync toggle
 - dependency depth (fixed to 1 where dependency sync is used)
 - field-level policies
+
+Where this lands in the UI — **Configure → Sync profiles**:
+
+![Configure → Sync profiles](./07-configure-profiles.png)
 
 ---
 

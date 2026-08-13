@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The Home hub always reported "Paired", even in single-side mode.** The
+  connection status compared `syncMode` against `'single'`, but the value written
+  by the config form, read by the server, and used by every other screen is
+  `'single_side'` — so the badge never matched and silently fell through to
+  "Paired". Confirmed against a live instance whose `/config` returned
+  `single_side` while the hub rendered `Paired`.
+
+### Documentation
+
+- Replaced the screenshot set. The previous images predated the 1.2.0 navigation
+  rework and still showed the old flat tab bar (Configuration / Content Types /
+  Sync Profiles / …), which no longer exists. The new set is captured from
+  1.2.0 running against a live paired instance and covers every route: Home,
+  the three Setup steps, Connection, Content types, Sync profiles, Advanced,
+  Run profiles, Bulk transfer, Media, Stats, Logs, and Help.
+- Added an **Admin UI Navigation** section mapping the two-tier information
+  architecture to its URLs, and noting that the old flat paths still redirect.
+- Retargeted every stale navigation reference in the README — "Configuration
+  tab" → **Configure → Connection**, "Content Types tab" → **Configure →
+  Content types**, "Sync tab" → **Sync → Run profiles**, "Configuration →
+  Enforcement/Alerts" → **Configure → Advanced**, and the Stats/Logs sections to
+  **History →**.
+- Documented **Bulk Transfer** and the guided **Setup** wizard, neither of which
+  had prose in the README, and illustrated the strategy document's ordering,
+  content-type and profile sections with the matching screens.
+
 ## 1.2.0
 
 Verified end to end against two live Strapi 5.52.0 instances on MySQL 8.0.27,
