@@ -177,6 +177,9 @@ Configure individual field policies:
 - Pull-only profiles are enforced.
 - Live execution is disabled (use on-demand or scheduled).
 - Connection test validates remote reachability and API token access without requiring remote plugin routes.
+- Media links (entity → file) are derived from the remote's standard content REST
+  API, so the API token needs `find` on every content type that owns media
+  fields, not just on Upload.
 
 ## Execution Modes
 

@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.1.1
+
+### Fixed
+
+- **Media links were never applied in single-side mode** ([#1](https://github.com/eharain/strapi-content-sync-pro/issues/1)).
+  Pass 2 could only read links from the peer's `media-sync/entity-media-links`
+  endpoint, falling back to `media-sync/morph-links`. Both are routes of *this*
+  plugin, and single-side mode means the peer does not run it — so both returned
+  404 and the run finished with `mediaLinksApplied: 0` and a
+  `media_links_legacy` error, even though the files themselves pulled fine.
+  Media links are now derived from the peer's standard content REST API
+  (`/api/<plural>?populate=<media fields>`) when neither plugin route is served.
+  Files are matched by `documentId`, then by name+ext+size — a URL-synced file is
+  re-uploaded on the target and gets a fresh `documentId`.
+
+### Changed
+
+- The link-pull transport chain is now explicit and resolved per run:
+  `entity-media-links` → `morph-links` → plain content REST. Only a 404 advances
+  the chain; any other failure is reported instead of being masked by a fallback.
+  The run summary reports which transport was used via `legacyFallback` /
+  `restFallback`.
+- Pushing media links in single-side mode now fails with a clear message rather
+  than an opaque remote 404. (Single-side profiles are pull-only, so this is
+  reachable only through a hand-edited profile.)
+
 ## 1.1.0
 
 Reliability release. Relation and media syncing were reworked around an explicit

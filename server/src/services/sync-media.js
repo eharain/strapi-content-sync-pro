@@ -665,7 +665,9 @@ module.exports = ({ strapi }) => {
 
     if (!res.ok) {
       const body = await safeReadBody(res);
-      throw new Error(`Remote morph-links fetch failed (${res.status}): ${body}`);
+      const err = new Error(`Remote morph-links fetch failed (${res.status}): ${body}`);
+      err.status = res.status;
+      throw err;
     }
 
     const json = await res.json();
@@ -974,13 +976,90 @@ module.exports = ({ strapi }) => {
     return json?.data || { total: links.length, applied: 0, skipped: 0, errors: [] };
   }
 
+  // Strapi v5 REST returns a populated media field flat; a v4-shaped response
+  // wraps it in `data`. Unwrap so both read the same downstream.
+  function unwrapRestRelation(value) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && 'data' in value) return value.data;
+    return value;
+  }
+
+  /**
+   * Derive owner-side media links from the peer's STANDARD content REST API.
+   *
+   * This is the transport for a peer that does not run this plugin at all —
+   * single-side mode, where only stock `/api/<plural>` and `/api/upload`
+   * endpoints exist. Media fields come from the LOCAL schema (a single-side
+   * peer mirrors the same content types), and the result carries the same link
+   * shape `exportEntityMediaLinks` produces, so `applyEntityMediaLinks`
+   * consumes either transport unchanged.
+   */
+  async function fetchRemoteEntityMediaLinksViaRest(remoteConfig, { uid, page = 1, pageSize = 100 }) {
+    const { uidToPluralEndpoint } = require('../utils/fetcher');
+    const scope = await resolveMediaLinkScope([uid]);
+    const entry = scope.find((s) => s.uid === uid);
+    if (!entry) return { uid, page, pageSize, links: [], hasMore: false };
+
+    const size = Math.max(1, Math.min(Number(pageSize) || 100, 500));
+    const p = Math.max(1, Number(page) || 1);
+
+    const url = new URL(`/api/${uidToPluralEndpoint(uid)}`, remoteConfig.baseUrl);
+    url.searchParams.set('fields[0]', 'documentId');
+    entry.mediaFields.forEach(({ field }, i) => url.searchParams.set(`populate[${i}]`, field));
+    url.searchParams.set('pagination[page]', String(p));
+    url.searchParams.set('pagination[pageSize]', String(size));
+    url.searchParams.set('sort', 'documentId:asc');
+
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${remoteConfig.apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      const body = await safeReadBody(res);
+      const err = new Error(`Remote REST media-links fetch failed for ${uid} (${res.status}): ${body}`);
+      err.status = res.status;
+      throw err;
+    }
+
+    const json = await res.json();
+    const records = Array.isArray(json?.data) ? json.data : [];
+
+    const links = records
+      .filter((r) => r?.documentId)
+      .map((record) => {
+        const fields = {};
+        for (const { field, multiple } of entry.mediaFields) {
+          fields[field] = { multiple: !!multiple, files: fileRefsFrom(unwrapRestRelation(record[field])) };
+        }
+        return { uid, documentId: record.documentId, fields };
+      });
+
+    const pageCount = json?.meta?.pagination?.pageCount;
+    return {
+      uid,
+      page: p,
+      pageSize: size,
+      links,
+      hasMore: pageCount ? p < pageCount : records.length === size,
+    };
+  }
+
   /**
    * Pass 2 for media: walk the in-scope owning content types and sync their
    * media links in the profile's direction.
    *
-   * Peers older than this version don't expose the entity-media-links
-   * endpoints. A 404 there falls back to the legacy morph-link transport once,
-   * with a warning, so a mixed-version pair still syncs.
+   * Pull transports are tried in order; the first one the peer actually serves
+   * wins:
+   *   1. entity-media-links — peer runs this plugin version
+   *   2. morph-links        — peer runs an older plugin version
+   *   3. plain content REST — peer runs no plugin at all, which is exactly what
+   *                           single-side mode means. Links are derived from the
+   *                           owning entities' populated media fields.
+   * Push always needs the plugin on the peer: a stock Strapi has no endpoint
+   * that can apply links, and single-side profiles are pull-only anyway.
    */
   async function syncMediaLinks(profile, settings, options = {}) {
     const configService = plugin().service('config');
@@ -991,6 +1070,7 @@ module.exports = ({ strapi }) => {
     const direction = options.direction || settings.direction;
     const pageSize = Math.max(1, Math.min(Number(settings.pageSize) || 100, 500));
     const scope = await resolveMediaLinkScope(options.scopeUids || []);
+    const singleSide = (remoteConfig.syncMode || 'paired') === 'single_side';
 
     const out = {
       contentTypes: scope.map((s) => s.uid),
@@ -1000,22 +1080,28 @@ module.exports = ({ strapi }) => {
       unchanged: 0,
       errors: [],
       legacyFallback: false,
+      restFallback: false,
       cancelled: false,
     };
 
     if (settings.dryRun) return out;
 
-    for (const { uid } of scope) {
-      // PULL: remote owner entities → local links
-      if (direction === 'pull' || direction === 'both') {
+    /**
+     * Pull every in-scope content type through one transport.
+     * `probe` marks a transport that may be absent on the peer entirely: a 404
+     * then means "not served", and the caller moves on to the next transport
+     * instead of recording a per-content-type failure.
+     */
+    const pullLinksWith = async (fetchPage, { probe = false } = {}) => {
+      for (const { uid } of scope) {
         for (let page = 1; ; page += 1) {
           const abort = await checkpoint(pid);
-          if (abort?.cancelled) { out.cancelled = true; break; }
+          if (abort?.cancelled) { out.cancelled = true; return true; }
           let remote;
           try {
-            remote = await fetchRemoteEntityMediaLinks(remoteConfig, { uid, page, pageSize });
+            remote = await fetchPage({ uid, page, pageSize });
           } catch (err) {
-            if (err.status === 404) { out.legacyFallback = true; break; }
+            if (probe && err.status === 404) return false;
             out.errors.push({ name: `media_links_pull:${uid}`, error: err.message });
             break;
           }
@@ -1028,61 +1114,98 @@ module.exports = ({ strapi }) => {
           }
           if (!remote.hasMore) break;
         }
+        if (out.cancelled) break;
       }
-      if (out.cancelled) break;
+      return true;
+    };
 
-      // PUSH: local owner entities → remote links
-      if (direction === 'push' || direction === 'both') {
-        for (let page = 1; ; page += 1) {
-          const abort = await checkpoint(pid);
-          if (abort?.cancelled) { out.cancelled = true; break; }
-          let local;
-          try {
-            local = await exportEntityMediaLinks({ uid, page, pageSize });
-          } catch (err) {
-            out.errors.push({ name: `media_links_push:${uid}`, error: err.message });
-            break;
+    // ── PULL: remote owner entities → local links ───────────────────────────
+    if (direction === 'pull' || direction === 'both') {
+      // Single-side peers never serve plugin endpoints; don't waste a probe.
+      let served = singleSide
+        ? false
+        : await pullLinksWith((a) => fetchRemoteEntityMediaLinks(remoteConfig, a), { probe: true });
+
+      // Mixed-version pair: the peer predates owner-side link sync but still
+      // serves the legacy morph transport.
+      if (!served && !singleSide && !out.cancelled) {
+        strapi.log?.warn?.('[data-sync] peer does not expose entity-media-links; falling back to legacy morph-link sync');
+        try {
+          const applyResult = await applyMorphLinks(await fetchRemoteMorphLinks(remoteConfig));
+          out.pulled += applyResult.applied || 0;
+          out.skipped += applyResult.skipped || 0;
+          out.legacyFallback = true;
+          served = true;
+        } catch (err) {
+          // Only a 404 means "transport absent" — anything else is a real failure
+          // and must not be masked by cascading to the next transport.
+          if (err.status !== 404) {
+            out.errors.push({ name: 'media_links_legacy', error: err.message });
+            out.legacyFallback = true;
+            served = true;
           }
-          if (local.links.length > 0) {
+        }
+      }
+
+      // The peer serves no plugin endpoint at all — read its content API directly.
+      if (!served && !out.cancelled) {
+        out.restFallback = true;
+        strapi.log?.warn?.('[data-sync] peer exposes no sync-plugin link endpoints; deriving media links from its content REST API');
+        await pullLinksWith((a) => fetchRemoteEntityMediaLinksViaRest(remoteConfig, a));
+      }
+    }
+
+    // ── PUSH: local owner entities → remote links ───────────────────────────
+    if ((direction === 'push' || direction === 'both') && !out.cancelled) {
+      if (singleSide) {
+        out.errors.push({
+          name: 'media_links_push',
+          error: 'Media links cannot be pushed in single-side mode: the remote instance does not run this plugin.',
+        });
+      } else {
+        let served = true;
+        for (const { uid } of scope) {
+          for (let page = 1; ; page += 1) {
+            const abort = await checkpoint(pid);
+            if (abort?.cancelled) { out.cancelled = true; break; }
+            let local;
             try {
-              const result = await applyRemoteEntityMediaLinks(remoteConfig, local.links);
-              out.pushed += result.applied || 0;
-              out.skipped += result.skipped || 0;
-              out.unchanged += result.unchanged || 0;
-              if (Array.isArray(result.errors) && result.errors.length) {
-                out.errors.push(...result.errors.map((e) => ({ name: `media_links_push:${uid}`, error: e.error || 'remote apply error' })));
-              }
+              local = await exportEntityMediaLinks({ uid, page, pageSize });
             } catch (err) {
-              if (err.status === 404) { out.legacyFallback = true; break; }
               out.errors.push({ name: `media_links_push:${uid}`, error: err.message });
               break;
             }
+            if (local.links.length > 0) {
+              try {
+                const result = await applyRemoteEntityMediaLinks(remoteConfig, local.links);
+                out.pushed += result.applied || 0;
+                out.skipped += result.skipped || 0;
+                out.unchanged += result.unchanged || 0;
+                if (Array.isArray(result.errors) && result.errors.length) {
+                  out.errors.push(...result.errors.map((e) => ({ name: `media_links_push:${uid}`, error: e.error || 'remote apply error' })));
+                }
+              } catch (err) {
+                if (err.status === 404) { served = false; break; }
+                out.errors.push({ name: `media_links_push:${uid}`, error: err.message });
+                break;
+              }
+            }
+            if (!local.hasMore) break;
           }
-          if (!local.hasMore) break;
+          if (!served || out.cancelled) break;
         }
-      }
-      if (out.cancelled) break;
-    }
 
-    // Mixed-version pair: the peer predates owner-side link sync. Fall back to
-    // the legacy morph transport so links still land, and say so in the summary.
-    if (out.legacyFallback && !out.cancelled) {
-      strapi.log?.warn?.('[data-sync] peer does not expose entity-media-links; falling back to legacy morph-link sync');
-      try {
-        if (direction === 'pull' || direction === 'both') {
-          const remoteLinks = await fetchRemoteMorphLinks(remoteConfig);
-          const applyResult = await applyMorphLinks(remoteLinks);
-          out.pulled += applyResult.applied || 0;
-          out.skipped += applyResult.skipped || 0;
+        if (!served && !out.cancelled) {
+          out.legacyFallback = true;
+          strapi.log?.warn?.('[data-sync] peer does not expose entity-media-links; falling back to legacy morph-link push');
+          try {
+            const applyResult = await applyRemoteMorphLinks(remoteConfig, await exportMorphLinks());
+            out.pushed += applyResult.applied || 0;
+            out.skipped += applyResult.skipped || 0;
+          } catch (err) {
+            out.errors.push({ name: 'media_links_legacy', error: err.message });
+          }
         }
-        if (direction === 'push' || direction === 'both') {
-          const localLinks = await exportMorphLinks();
-          const applyResult = await applyRemoteMorphLinks(remoteConfig, localLinks);
-          out.pushed += applyResult.applied || 0;
-          out.skipped += applyResult.skipped || 0;
-        }
-      } catch (err) {
-        out.errors.push({ name: 'media_links_legacy', error: err.message });
       }
     }
 
@@ -1741,6 +1864,8 @@ module.exports = ({ strapi }) => {
     exportEntityMediaLinks,
     applyEntityMediaLinks,
     resolveMediaLinkScope,
+    // Single-side transport: same links, read off a plugin-less peer's REST API
+    fetchRemoteEntityMediaLinksViaRest,
 
     // Legacy morph link APIs. No longer part of the strategy — kept so a peer
     // running an older plugin version can still exchange links with this one
