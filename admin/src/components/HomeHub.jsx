@@ -15,7 +15,7 @@ const CARD_SECTIONS = groupedNav()
 
 const ConnectionStatus = ({ config }) => {
     const configured = Boolean(config?.baseUrl && config?.hasApiToken !== false);
-    const mode = config?.syncMode === 'single' ? 'Single-side' : 'Paired';
+    const mode = config?.syncMode === 'single_side' ? 'Single-side' : 'Paired';
 
     return (
         <Flex gap={3} wrap="wrap" alignItems="center">
