@@ -29,6 +29,11 @@
 - Documented **Bulk Transfer** and the guided **Setup** wizard, neither of which
   had prose in the README, and illustrated the strategy document's ordering,
   content-type and profile sections with the matching screens.
+- Added a dedicated [screenshot gallery](docs/screenshots.md) — every screen with
+  its route and a written walkthrough of what it does.
+- Reworked the README landing view: centred masthead, badge row, quick-link nav,
+  a full-width hero, and a screenshot grid that is visible by default (it was
+  collapsed behind a `<details>` toggle) with each tile linking into the gallery.
 
 ## 1.2.0
 

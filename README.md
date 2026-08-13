@@ -1,60 +1,78 @@
-﻿# Content Sync Pro Plugin for Strapi
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/logo-horizontal.svg" alt="Content Sync Pro" width="720" />
+﻿<p align="center">
+  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/logo-horizontal.svg" alt="Content Sync Pro" width="640" />
 </p>
 
-A powerful Strapi v5 plugin to copy, migrate, and live-sync content, media, and data between multiple Strapi environments.
+<h1 align="center">Content Sync Pro for Strapi</h1>
 
-[![npm version](https://badge.fury.io/js/strapi-content-sync-pro.svg)](https://www.npmjs.com/package/strapi-content-sync-pro)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Product page](https://img.shields.io/badge/Product%20page-tech--style.co-0b7285.svg)](https://tech-style.co/products.html#content-sync)
+<p align="center">
+  Copy, migrate, and live-sync content, media, users, and relations<br />
+  between any number of Strapi&nbsp;v5 environments.
+</p>
 
-Product page: **[tech-style.co/products.html#content-sync](https://tech-style.co/products.html#content-sync)** · Contact: **[hello@tech-style.co](mailto:hello@tech-style.co)**
+<p align="center">
+  <a href="https://www.npmjs.com/package/strapi-content-sync-pro"><img src="https://badge.fury.io/js/strapi-content-sync-pro.svg" alt="npm version" /></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="https://tech-style.co/products.html#content-sync"><img src="https://img.shields.io/badge/Product%20page-tech--style.co-0b7285.svg" alt="Product page" /></a>
+  <img src="https://img.shields.io/badge/Strapi-v5-4945FF.svg" alt="Strapi v5" />
+</p>
+
+<p align="center">
+  <a href="#quick-start"><b>Quick start</b></a> ·
+  <a href="#screenshots"><b>Screenshots</b></a> ·
+  <a href="docs/screenshots.md"><b>Full gallery</b></a> ·
+  <a href="https://youtu.be/hr3dD6dLgLQ"><b>Video</b></a> ·
+  <a href="https://tech-style.co/products.html#content-sync"><b>Product page</b></a> ·
+  <a href="mailto:hello@tech-style.co"><b>Contact</b></a>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/01-home-hub.png" alt="Content Sync Pro — the Home hub inside the Strapi admin panel" width="100%" />
+</p>
+
+<p align="center"><sub>The Home hub — connection status, deployment mode, and every section one click away.</sub></p>
+
+---
 
 ## Video
 
-Plugin intro: https://youtu.be/hr3dD6dLgLQ
-
-<a href="https://youtu.be/hr3dD6dLgLQ" target="_blank" rel="noopener noreferrer">
-  <img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/01-home-hub.png" alt="Content Sync Pro — watch the intro video" width="100%" />
-</a>
+<p align="center">
+  <a href="https://youtu.be/hr3dD6dLgLQ" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.shields.io/badge/Watch%20the%20intro%20walkthrough-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch the intro video on YouTube" />
+  </a>
+</p>
 
 ## Screenshots
 
-<details>
-  <summary>View screenshots</summary>
+Captured from a live 1.2.0 install — real profiles, real run history, real counts.
+Click any screen for its walkthrough, or open the
+**[full gallery](docs/screenshots.md)** for all fourteen.
 
-  <br />
+<table>
+  <tr>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#setup-1-connect"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/02-setup-connect.png" alt="Guided setup — connect to the remote server" width="100%" /></a><br /><b>Setup 1 · Connect</b><br /><sub>Remote URL, token, and deployment mode — validated before you save.</sub></td>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#setup-2-choose-scope"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/03-setup-scope.png" alt="Guided setup — choose what to sync" width="100%" /></a><br /><b>Setup 2 · Choose scope</b><br /><sub>Toggle content types on; default profiles are generated for you.</sub></td>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#setup-3-run"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/04-setup-run.png" alt="Guided setup — run your first sync" width="100%" /></a><br /><b>Setup 3 · Run</b><br /><sub>Review the generated profiles and run your first sync.</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#run-profiles"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/09-sync-run-profiles.png" alt="Run profiles — ordering, dependencies, execution mode" width="100%" /></a><br /><b>Run profiles</b><br /><sub>Dependency-aware ordering, per-profile execution, run on demand.</sub></td>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#bulk-transfer"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/10-sync-bulk-transfer.png" alt="Bulk transfer — chunked one-click transfer with progress" width="100%" /></a><br /><b>Bulk transfer</b><br /><sub>One-click full pull or push, chunked, pausable, resumable.</sub></td>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#media"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/11-media.png" alt="Media — sync profiles with live status and controls" width="100%" /></a><br /><b>Media</b><br /><sub>Files and DB rows, URL or rsync, with live status and controls.</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#connection"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/05-configure-connection.png" alt="Connection — remote URL, API token, deployment mode" width="100%" /></a><br /><b>Connection</b><br /><sub>Paired or single-side, with secrets masked in every response.</sub></td>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#content-types"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/06-configure-content-types.png" alt="Content types — toggle what is in scope" width="100%" /></a><br /><b>Content types</b><br /><sub>Choose what is in scope, with direct dependencies pulled in.</sub></td>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#sync-profiles"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/07-configure-profiles.png" alt="Sync profiles — direction, conflict strategy, field policies" width="100%" /></a><br /><b>Sync profiles</b><br /><sub>Direction, conflict strategy, and field-level policies.</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#advanced"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/08-configure-advanced.png" alt="Advanced — enforcement policies and alerts" width="100%" /></a><br /><b>Advanced</b><br /><sub>Schema, version and clock checks, plus email/webhook alerts.</sub></td>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#stats"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/12-history-stats.png" alt="Stats — local vs remote counts and run reports" width="100%" /></a><br /><b>Stats</b><br /><sub>Local vs remote counts, newest side, and per-run snapshots.</sub></td>
+    <td width="33%" valign="top"><a href="docs/screenshots.md#logs"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/13-history-logs.png" alt="Logs — searchable, filterable per-action sync log" width="100%" /></a><br /><b>Logs</b><br /><sub>Every action, with counters and messages, searchable.</sub></td>
+  </tr>
+</table>
 
-  <table>
-    <tr>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/01-home-hub.png" alt="Home — connection status and every section at a glance" width="100%" /><br /><sub><b>Home</b> — connection status and every section at a glance</sub></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/02-setup-connect.png" alt="Guided setup — connect to the remote server" width="100%" /><br /><sub><b>Setup 1/3</b> — connect to the remote server</sub></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/03-setup-scope.png" alt="Guided setup — choose what to sync" width="100%" /><br /><sub><b>Setup 2/3</b> — choose what to sync</sub></td>
-    </tr>
-    <tr>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/04-setup-run.png" alt="Guided setup — run your first sync" width="100%" /><br /><sub><b>Setup 3/3</b> — run your first sync</sub></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/05-configure-connection.png" alt="Connection — remote URL, API token, deployment mode" width="100%" /><br /><sub><b>Connection</b> — remote URL, API token, deployment mode</sub></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/06-configure-content-types.png" alt="Content types — toggle what is in scope" width="100%" /><br /><sub><b>Content types</b> — toggle what is in scope</sub></td>
-    </tr>
-    <tr>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/07-configure-profiles.png" alt="Sync profiles — direction, conflict strategy, field policies" width="100%" /><br /><sub><b>Sync profiles</b> — direction, conflict strategy, field policies</sub></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/08-configure-advanced.png" alt="Advanced — enforcement policies and alerts" width="100%" /><br /><sub><b>Advanced</b> — enforcement policies and alerts</sub></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/09-sync-run-profiles.png" alt="Run profiles — ordering, dependencies, per-profile execution" width="100%" /><br /><sub><b>Run profiles</b> — ordering, dependencies, execution mode</sub></td>
-    </tr>
-    <tr>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/10-sync-bulk-transfer.png" alt="Bulk transfer — chunked one-click transfer with progress" width="100%" /><br /><sub><b>Bulk transfer</b> — chunked one-click transfer with progress</sub></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/11-media.png" alt="Media — media sync profiles with live status and controls" width="100%" /><br /><sub><b>Media</b> — media sync profiles, live status and controls</sub></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/12-history-stats.png" alt="Stats — local vs remote counts and run reports" width="100%" /><br /><sub><b>Stats</b> — local vs remote counts and run reports</sub></td>
-    </tr>
-    <tr>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/13-history-logs.png" alt="Logs — searchable, filterable per-action sync log" width="100%" /><br /><sub><b>Logs</b> — searchable, filterable per-action sync log</sub></td>
-      <td width="33%"><img src="https://raw.githubusercontent.com/eharain/strapi-content-sync-pro/master/docs/14-help.png" alt="Help — step-by-step guidance inside the admin panel" width="100%" /><br /><sub><b>Help</b> — step-by-step guidance inside the admin panel</sub></td>
-      <td width="33%"></td>
-    </tr>
-  </table>
-</details>
+<p align="center">
+  <a href="docs/screenshots.md"><b>→ See all 14 screens with a written walkthrough</b></a>
+</p>
 
 ## Admin UI Navigation
 
