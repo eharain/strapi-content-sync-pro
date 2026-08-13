@@ -132,7 +132,7 @@ export const HelpTab = () => {
                 <li><Typography variant="omega">Pagination support for large datasets with bounded memory usage</Typography></li>
                 <li><Typography variant="omega">Dependency resolution - sync related entities automatically</Typography></li>
                 <li><Typography variant="omega"><strong>Bulk Transfer</strong> - top-level tab for one-click full push / full pull with selectable chunks, page-level progress, pause / resume / cancel, and persisted run history (restart or resume any previous run)</Typography></li>
-                <li><Typography variant="omega">Media sync (URL or rsync) with MIME filters and morph-link remapping</Typography></li>
+                <li><Typography variant="omega">Media sync (URL or rsync) with MIME filters and owner-side entity → file links</Typography></li>
                 <li><Typography variant="omega">Enforcement checks - schema, version, and time validation</Typography></li>
                 <li><Typography variant="omega">Configurable alerts via email, webhook, or Strapi logs</Typography></li>
                 <li><Typography variant="omega">Secure communication via API tokens and HMAC signatures</Typography></li>
@@ -184,6 +184,11 @@ export const HelpTab = () => {
               <Typography variant="omega" paddingBottom={2}>
                 In paired mode, connection test validates remote plugin reachability and token access. In single-side mode,
                 test validates remote reachability and content API token access without requiring remote plugin endpoints.
+              </Typography>
+              <Typography variant="omega" paddingBottom={2}>
+                Single-side mode reads everything through the remote's standard REST API, including media links. Grant the API
+                token <code>find</code> on every content type you sync <em>and</em> on those that merely own media fields —
+                otherwise files pull successfully but arrive unlinked.
               </Typography>
 
               <Box background="neutral100" padding={4} hasRadius marginBottom={4}>
@@ -621,7 +626,7 @@ http://localhost:1337</CodeBlock>
                   <ul style={{ paddingLeft: '20px', marginTop: '8px', lineHeight: '1.8' }}>
                     <li><Typography variant="omega"><strong>Direction</strong> — <em>Full Pull</em> (remote → local) or <em>Full Push</em> (local → remote). In <strong>Single-side</strong> mode only Full Pull is available.</Typography></li>
                     <li><Typography variant="omega"><strong>Content</strong> — All user-defined <code>api::*</code> content types.</Typography></li>
-                    <li><Typography variant="omega"><strong>Media</strong> — Files and morph links via the active media profiles.</Typography></li>
+                    <li><Typography variant="omega"><strong>Media</strong> — Files and entity → file links via the active media profiles.</Typography></li>
                     <li><Typography variant="omega"><strong>Strapi Users</strong> — <code>plugin::users-permissions.user</code>.</Typography></li>
                     <li><Typography variant="omega"><strong>Admin Users</strong> — <code>admin::user</code> (experimental; use with care).</Typography></li>
                     <li><Typography variant="omega"><strong>Apply deletions</strong> — Destination removes items missing on source. Use with care, especially with user scopes.</Typography></li>
@@ -755,8 +760,15 @@ http://localhost:1337</CodeBlock>
                 Each profile can sync two distinct aspects of media:
               </Typography>
               <Typography variant="omega" paddingTop={2}>
-                For entity-linked media consistency, this plugin also syncs media morph links using <strong>documentId-based remapping</strong>
-                (file documentId and related entity documentId are resolved to local numeric ids before insert).
+                For entity-linked media consistency, this plugin also syncs <strong>entity → file links</strong>, written from the
+                <strong> owning</strong> content type's media fields in one direction. Links are applied with set semantics, so removing
+                an image at the source removes it at the target. Files are matched by <code>documentId</code>, falling back to
+                name + extension + size — a URL-synced file is re-uploaded on the target and gets a fresh <code>documentId</code>.
+              </Typography>
+              <Typography variant="pi" textColor="neutral600" paddingTop={2}>
+                A field whose source list is non-empty but resolves to no local file is left untouched rather than cleared: that
+                state means the files have not been pulled yet, not that the link was removed. Run the media pass again once the
+                files exist.
               </Typography>
               <Box background="neutral100" padding={4} hasRadius marginTop={2} marginBottom={2}>
                 <Typography variant="sigma" textColor="neutral800">DB Rows (Metadata)</Typography>
@@ -780,8 +792,14 @@ http://localhost:1337</CodeBlock>
               </Typography>
               <Typography variant="pi" textColor="neutral600" paddingTop={2}>
                 Note: Strapi components, repeatable components, and dynamic zones are already tracked by
-                document service sync using stable documentIds, so they do not require id-to-documentId remapping
-                like upload morph tables do.
+                document service sync using stable documentIds, so they need no id remapping of their own.
+              </Typography>
+              <Typography variant="pi" textColor="neutral600" paddingTop={2}>
+                Where the links are read from depends on the deployment mode. In <strong>paired</strong> mode they come from the
+                remote plugin's <code>media-sync/entity-media-links</code> endpoint (or the older <code>media-sync/morph-links</code>
+                if the peer runs a previous version). In <strong>single-side</strong> mode the remote runs no plugin at all, so links
+                are derived from its standard content REST API — which means the API token needs <code>find</code> on every content
+                type that owns media fields, not just Upload permissions.
               </Typography>
             </HelpSection>
 

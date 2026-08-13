@@ -208,7 +208,9 @@ Full media synchronization between Strapi instances:
 - **rsync Strategy** — Host-level file copy using the `rsync` binary. Fastest for local-provider setups with SSH access.
 - **Profile-based** — Create media sync profiles with direction, conflict strategy, MIME filters, filename patterns, and execution settings.
 - **DB + File Sync** — Syncs both the `plugin::upload.file` database rows and the actual file bytes.
-- **Morph Link Remapping** — Syncs `files_related_morphs` links by mapping file + related entities through documentId, then remapping to local numeric ids before insert.
+- **Entity → File Links** — Media links are written from the **owning** content type's media fields, in one direction, with set semantics: removing an image at the source removes it at the target. Files are matched by `documentId`, falling back to name + extension + size, because a URL-synced file is re-uploaded on the target and gets a fresh `documentId`. A field whose source list is non-empty but resolves to no local file is left untouched rather than cleared — that means the files have not been pulled yet, not that the link was removed.
+  - In **paired** mode the links come from the peer's `media-sync/entity-media-links` endpoint (or `media-sync/morph-links` if the peer runs an older version).
+  - In **single-side** mode the peer serves neither, so links are derived from its standard content REST API (`/api/<plural>?populate=<media fields>`). This requires the API token to have `find` on every content type that owns media fields.
 - **Live Status + Pause/Resume/Stop** — The Media tab polls status every 2 s while a profile is running or paused and shows live phase and counters (`pushed`, `pulled`, `skipped`, `errors`). Long runs can be paused, resumed, or stopped cooperatively from the UI or via `POST /api/strapi-content-sync-pro/media-sync/profiles/:id/pause|resume|cancel` (URL strategy; rsync runs cannot be paused mid-process).
 
 ## Enforcement
@@ -293,6 +295,8 @@ A top action row (shared by both sub-tabs) provides:
 | "Content type endpoint not found" | In paired mode, ensure matching content-type definitions and enabled API routes on both instances |
 | "Live mode not available" | Switch to paired mode, or use on-demand/scheduled in single-side mode |
 | "Schema mismatch" | Sync content type schemas or set enforcement to "compatible" |
+| Files pull but stay unlinked (`mediaLinksApplied: 0`) | Grant the API token `find` on every content type that owns media fields — in single-side mode links are read from the remote's content REST API, not from a plugin route. Before 1.1.1 this failed unconditionally in single-side mode; upgrade. |
+| "Remote morph-links fetch failed (404)" | The remote does not run this plugin. Fixed in 1.1.1, which falls back to the remote's content REST API. On older versions, install the plugin on both instances (paired mode). |
 
 ### Viewing Logs
 
