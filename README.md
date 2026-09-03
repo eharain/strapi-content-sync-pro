@@ -22,6 +22,7 @@
   <a href="docs/screenshots.md"><b>Full gallery</b></a> ·
   <a href="https://youtu.be/hr3dD6dLgLQ"><b>Video</b></a> ·
   <a href="https://tech-style.co/products.html#content-sync"><b>Product page</b></a> ·
+  <a href="https://tech-style.co/products.html#remote-backup"><b>Free backup tool</b></a> ·
   <a href="mailto:hello@tech-style.co"><b>Contact</b></a>
 </p>
 
@@ -30,6 +31,30 @@
 </p>
 
 <p align="center"><sub>The Home hub — connection status, deployment mode, and every section one click away.</sub></p>
+
+---
+
+> ### Only need backup and restore? We make a free tool for that.
+>
+> Content Sync Pro moves content **between** Strapi environments. If all you want is to
+> back up one Strapi instance and restore it, reach for its sibling instead:
+>
+> ### [Strapi Remote Backup Pro &rarr;](https://tech-style.co/products.html#remote-backup)
+>
+> Free and open source, and it installs **nothing into your Strapi project** — no plugin,
+> no rebuild, no redeploy. Point it at a Strapi URL, sign in with admin credentials, and
+> it pulls content, media and schemas over the same admin API the admin panel itself
+> uses, into a portable `.zip`. Restore is selective: pick content types, pick records,
+> pick how deep to follow relations.
+>
+> Backup and restore on **Strapi v5** runs end to end, covered by a round-trip test
+> against two live instances — content, components, dynamic zones, relations,
+> draft/published pairs and media. It is early: today it writes to local disk, with the
+> remaining destinations and the desktop app still in progress.
+>
+> **[Product page](https://tech-style.co/products.html#remote-backup)** &middot;
+> [Source](https://github.com/eharain/Strapi-Remote-Backup-Pro) &middot;
+> [What works today](https://github.com/eharain/Strapi-Remote-Backup-Pro/blob/main/docs/dev/worksheet.md)
 
 ---
 
@@ -427,6 +452,7 @@ Contributions are welcome! Please open an issue or submit a pull request.
 ## Support
 
 - Product page: [tech-style.co/products.html#content-sync](https://tech-style.co/products.html#content-sync)
+- Just need backups? [Strapi Remote Backup Pro](https://tech-style.co/products.html#remote-backup) is our free remote backup and restore tool
 - Email: [hello@tech-style.co](mailto:hello@tech-style.co)
 - Contact form: [tech-style.co/contact.html](https://tech-style.co/contact.html)
 - Bugs & feature requests: [GitHub Issues](https://github.com/eharain/strapi-content-sync-pro/issues)
