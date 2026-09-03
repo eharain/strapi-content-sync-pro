@@ -1,0 +1,109 @@
+#!/bin/sh
+# Blocks a commit that would carry an AI-tool footprint in ANY of:
+#   - the author or committer identity (name or email),
+#   - a staged file's NAME,
+#   - a staged file's CONTENT.
+#
+# One of three guards: commit-msg covers the commit message, pre-push re-checks
+# whole history (identities, messages, names, added lines) so a --no-verify
+# commit or an imported one is still caught before it reaches a remote.
+# Installed machine-wide via `git config --global core.hooksPath`, and
+# versioned in each repo's .githooks/ so the protection travels with a clone.
+#
+# The vendor list is held as octal escapes and assembled at run time, so the
+# plain names never appear in this file and a code search of the repository
+# turns up nothing. `printf %b` is POSIX and behaves identically under Git Bash,
+# Linux and macOS.
+#
+# The only files allowed to carry these names are the guardrail files
+# themselves: .githooks/*, AGENTS.md, RULES.md (and the .ai-rules.md
+# predecessor). Anything else staged with a match is rejected.
+PROVIDERS=$(printf '%b' '\143\154\141\165\144\145|\141\156\164\150\162\157\160\151\143|\143\157\160\151\154\157\164|\143\150\141\164\147\160\164|\157\160\145\156\141\151|\147\160\164-[0-9]|\143\157\144\145\151\165\155|\164\141\142\156\151\156\145|\167\151\156\144\163\165\162\146|\153\151\155\151|\144\145\145\160\163\145\145\153|\147\145\155\151\156\151|\143\157\144\145\170|\143\141\156\166\141')
+C=$(printf '%b' '\143\165\162\163\157\162')
+
+PATTERN="$PROVIDERS|$C"
+
+# CONTENT is scanned with a second pattern, because one name on that list is
+# also an ordinary word: the text caret, the CSS property and the database
+# iterator. Scanning content for the bare word would make every file that uses
+# it uneditable and block the word from ever being written again — and a guard
+# that cannot be satisfied is one that gets bypassed with --no-verify, which is
+# worse than the false positive.
+#
+# So content is checked for the tool rather than the noun: the name has to
+# appear as an attribution, a domain, or a product reference. The FILE NAME
+# check keeps the full pattern above — no file here is named for a caret, and a
+# tool's dotfile directory is exactly the artefact worth catching.
+#
+# Every other name on the list is unambiguous and stays broad.
+CONTENT_PATTERN="$PROVIDERS"
+CURSOR_PATTERN="(co-?authored|generated|written|authored|created|assisted|made|built|powered)([^a-z]|[a-z]){0,24}$C|$C\.(sh|so|com|ai|dev)|$C[-_ ](ide|editor|ai|agent|composer|rules)|\.${C}rules|\.$C/"
+
+# ── who is committing ───────────────────────────────────────────────────────
+# An AI-bot author or committer is a footprint no message or content scan can
+# see. `git var` resolves the same precedence git itself uses (environment,
+# then config), so what is checked is exactly what the commit would record.
+IDENT="$(git var GIT_AUTHOR_IDENT 2>/dev/null)
+$(git var GIT_COMMITTER_IDENT 2>/dev/null)"
+if printf '%s' "$IDENT" | grep -qiE "$PATTERN"; then
+  echo "" >&2
+  echo "pre-commit hook: rejected - the author or committer identity names an AI tool:" >&2
+  printf '%s\n' "$IDENT" | sed 's/^/  /' >&2
+  echo "" >&2
+  echo "Set your own name and email (git config user.name / user.email, or the" >&2
+  echo "GIT_AUTHOR_* / GIT_COMMITTER_* environment) and retry." >&2
+  echo "" >&2
+  exit 1
+fi
+
+HITS=$(mktemp)
+trap 'rm -f "$HITS"' EXIT
+
+# NUL-delimited staged paths (added/copied/modified/renamed). tr converts
+# NUL to newline so the loop stays in this shell (no subshell state loss).
+git diff --cached --name-only --diff-filter=ACMR -z | tr '\0' '\n' | while IFS= read -r path; do
+  [ -z "$path" ] && continue
+
+  case "$path" in
+    *.githooks/*|AGENTS.md|RULES.md|.ai-rules.md|*/AGENTS.md|*/RULES.md|*/.ai-rules.md)
+      continue ;;
+  esac
+
+  if printf '%s' "$path" | grep -qiE "$PATTERN"; then
+    printf '  NAME: %s\n' "$path" >> "$HITS"
+  fi
+
+  # Generated dependency locks are checked by NAME but not by CONTENT. Nobody
+  # writes a lockfile — the package manager resolves it from a public registry —
+  # so it cannot carry an attribution anybody chose to put there. What it DOES
+  # carry is ordinary packages whose names collide with the pattern: terminal
+  # caret helpers pulled in transitively by common CLI libraries, which made
+  # every lockfile in the estate uncommittable. A guard that cannot be satisfied
+  # is a guard that gets bypassed with --no-verify, and that is worse than the
+  # false positive.
+  case "$path" in
+    package-lock.json|*/package-lock.json|npm-shrinkwrap.json|*/npm-shrinkwrap.json|yarn.lock|*/yarn.lock|pnpm-lock.yaml|*/pnpm-lock.yaml)
+      continue ;;
+  esac
+
+  blob=$(git ls-files -s -- "$path" | awk '{print $2}')
+  [ -z "$blob" ] && continue
+  if git cat-file -p "$blob" 2>/dev/null | grep -qiE "$CONTENT_PATTERN"; then
+    printf '  CONTENT: %s\n' "$path" >> "$HITS"
+  elif git cat-file -p "$blob" 2>/dev/null | grep -qiE "$CURSOR_PATTERN"; then
+    printf '  CONTENT: %s\n' "$path" >> "$HITS"
+  fi
+done
+
+if [ -s "$HITS" ]; then
+  echo "" >&2
+  echo "pre-commit hook: rejected - staged file(s) carry an AI tool name in the file name or content:" >&2
+  cat "$HITS" >&2
+  echo "" >&2
+  echo "Rename the file / remove the reference. Files that legitimately document this" >&2
+  echo "policy belong in AGENTS.md / RULES.md or .githooks/, which are allow-listed." >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0

@@ -1,0 +1,106 @@
+#!/bin/sh
+# Last line of defense: every commit about to be pushed is re-checked for an
+# AI-tool footprint in ALL FOUR places a commit can carry one —
+#   - the author and committer identities,
+#   - the commit message,
+#   - the names of the files it touches,
+#   - the lines it adds.
+# Catches commits made with `commit --no-verify`, imported via
+# cherry-pick/patch/rebase from elsewhere, or already sitting in history.
+# The patterns and carve-outs mirror pre-commit and commit-msg exactly; see
+# pre-commit for why the caret name and lockfiles are handled specially.
+#
+# The vendor list is held as octal escapes and assembled at run time, so the
+# plain names never appear in this file and a code search of the repository
+# turns up nothing. `printf %b` is POSIX and behaves identically under Git Bash,
+# Linux and macOS.
+PROVIDERS=$(printf '%b' '\143\154\141\165\144\145|\141\156\164\150\162\157\160\151\143|\143\157\160\151\154\157\164|\143\150\141\164\147\160\164|\157\160\145\156\141\151|\147\160\164-[0-9]|\143\157\144\145\151\165\155|\164\141\142\156\151\156\145|\167\151\156\144\163\165\162\146|\153\151\155\151|\144\145\145\160\163\145\145\153|\147\145\155\151\156\151|\143\157\144\145\170|\143\141\156\166\141')
+C=$(printf '%b' '\143\165\162\163\157\162')
+
+PATTERN="$PROVIDERS|$C"
+CONTENT_PATTERN="$PROVIDERS"
+CURSOR_PATTERN="(co-?authored|generated|written|authored|created|assisted|made|built|powered)([^a-z]|[a-z]){0,24}$C|$C\.(sh|so|com|ai|dev)|$C[-_ ](ide|editor|ai|agent|composer|rules)|\.${C}rules|\.$C/"
+
+ROBOT=$(printf '\360\237\244\226')
+
+z40=0000000000000000000000000000000000000000
+HITS=$(mktemp)
+PATHS=$(mktemp)
+trap 'rm -f "$HITS" "$PATHS"' EXIT
+
+check_commit() {
+  c="$1"
+  ref="$2"
+
+  # Identity: an AI-bot author or committer must not reach a remote.
+  ident=$(git show -s --format='%an <%ae>%n%cn <%ce>' "$c")
+  if printf '%s' "$ident" | grep -qiE "$PATTERN"; then
+    printf '  %s (%s) IDENT: %s\n' "$c" "$ref" "$(printf '%s' "$ident" | tr '\n' ';')" >> "$HITS"
+  fi
+
+  # Message: tool names anywhere, attribution-context caret name, robot mark.
+  # The robot mark is matched by SHELL string containment, not grep: the hook
+  # environment's locale differs from an interactive shell's, and a multibyte
+  # grep pattern that matches at a prompt silently missed under a real push.
+  msg=$(git show -s --format='%B' "$c")
+  robot_hit=1
+  case "$msg" in *"$ROBOT"*) robot_hit=0 ;; esac
+  if printf '%s' "$msg" | grep -qiE "$CONTENT_PATTERN" \
+    || printf '%s' "$msg" | grep -qiE "$CURSOR_PATTERN" \
+    || [ "$robot_hit" -eq 0 ]; then
+    printf '  %s (%s) MESSAGE\n' "$c" "$ref" >> "$HITS"
+  fi
+
+  # File names and added lines, with pre-commit's exact carve-outs. A merge
+  # commit shows no diff here (its content arrived in parents already
+  # checked); that is the same stance `git log -p` takes.
+  git diff-tree -r --no-commit-id --name-only --diff-filter=ACMR -z "$c" \
+    | tr '\0' '\n' > "$PATHS"
+  while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    case "$path" in
+      *.githooks/*|AGENTS.md|RULES.md|.ai-rules.md|*/AGENTS.md|*/RULES.md|*/.ai-rules.md)
+        continue ;;
+    esac
+    if printf '%s' "$path" | grep -qiE "$PATTERN"; then
+      printf '  %s (%s) NAME: %s\n' "$c" "$ref" "$path" >> "$HITS"
+    fi
+    case "$path" in
+      package-lock.json|*/package-lock.json|npm-shrinkwrap.json|*/npm-shrinkwrap.json|yarn.lock|*/yarn.lock|pnpm-lock.yaml|*/pnpm-lock.yaml)
+        continue ;;
+    esac
+    added=$(git diff-tree -r -p --no-commit-id "$c" -- "$path" \
+      | grep '^+' | grep -v '^+++')
+    if printf '%s' "$added" | grep -qiE "$CONTENT_PATTERN" \
+      || printf '%s' "$added" | grep -qiE "$CURSOR_PATTERN"; then
+      printf '  %s (%s) CONTENT: %s\n' "$c" "$ref" "$path" >> "$HITS"
+    fi
+  done < "$PATHS"
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$z40" ] && continue   # deleting a ref, nothing to check
+
+  if [ "$remote_sha" = "$z40" ]; then
+    range="$local_sha"                    # brand-new ref: check its full history
+  else
+    range="$remote_sha..$local_sha"
+  fi
+
+  for c in $(git rev-list "$range" -- 2>/dev/null); do
+    check_commit "$c" "$remote_ref"
+  done
+done
+
+if [ -s "$HITS" ]; then
+  echo "" >&2
+  echo "pre-push hook: rejected - commit(s) about to be pushed carry an AI-tool footprint:" >&2
+  cat "$HITS" >&2
+  echo "" >&2
+  echo "Rewrite the offending commit(s) (rebase/amend) so no identity, message," >&2
+  echo "file name or added line names an AI tool, then push again." >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0

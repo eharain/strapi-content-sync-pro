@@ -1,0 +1,53 @@
+#!/bin/sh
+# Rejects any commit whose MESSAGE carries an AI-tool footprint — not only a
+# Co-Authored-By / generated-with trailer but a tool vendor's name anywhere in
+# the message, and the robot emoji that marks generated-with lines. The message
+# half of the guard set: pre-commit covers identity, file names and content;
+# pre-push re-checks whole history. Installed machine-wide via `git config
+# --global core.hooksPath`, and versioned in each repo's .githooks/.
+#
+# The vendor list is held as octal escapes and assembled at run time, so the
+# plain names never appear in this file and a code search of the repository
+# turns up nothing. `printf %b` is POSIX and behaves identically under Git Bash,
+# Linux and macOS. To read the list back:
+PROVIDERS=$(printf '%b' '\143\154\141\165\144\145|\141\156\164\150\162\157\160\151\143|\143\157\160\151\154\157\164|\143\150\141\164\147\160\164|\157\160\145\156\141\151|\147\160\164-[0-9]|\143\157\144\145\151\165\155|\164\141\142\156\151\156\145|\167\151\156\144\163\165\162\146|\153\151\155\151|\144\145\145\160\163\145\145\153|\147\145\155\151\156\151|\143\157\144\145\170|\143\141\156\166\141')
+C=$(printf '%b' '\143\165\162\163\157\162')
+
+MSG_FILE="$1"
+
+CONTENT_PATTERN="$PROVIDERS"
+
+# One name on the list is also an ordinary word — the text caret — so it is
+# scanned in attribution context only. A message like "restore the caret after
+# repaint" is ordinary work here and must not be rejected.
+CURSOR_PATTERN="(co-?authored|generated|written|authored|created|assisted|made|built|powered)([^a-z]|[a-z]){0,24}$C|$C\.(sh|so|com|ai|dev)|$C[-_ ](ide|editor|ai|agent|composer|rules)|\.${C}rules|\.$C/"
+
+ROBOT=$(printf '\360\237\244\226')
+
+# Comment lines (commented-out template text) never reach the recorded
+# message, so they are stripped before scanning.
+STRIPPED=$(mktemp)
+trap 'rm -f "$STRIPPED"' EXIT
+grep -v '^#' "$MSG_FILE" > "$STRIPPED"
+
+# The robot mark is matched by SHELL string containment, not grep: the hook
+# environment's locale differs from an interactive shell's, and a multibyte
+# grep pattern that matches at a prompt silently missed under a real hook.
+MSG_BODY=$(cat "$STRIPPED")
+robot_hit=1
+case "$MSG_BODY" in *"$ROBOT"*) robot_hit=0 ;; esac
+
+if grep -qiE "$CONTENT_PATTERN" "$STRIPPED" \
+  || grep -qiE "$CURSOR_PATTERN" "$STRIPPED" \
+  || [ "$robot_hit" -eq 0 ]; then
+  echo "" >&2
+  echo "commit-msg hook: rejected - the commit message names an AI tool or carries an attribution mark:" >&2
+  { grep -inE "$CONTENT_PATTERN" "$STRIPPED"; grep -inE "$CURSOR_PATTERN" "$STRIPPED"; grep -n "$ROBOT" "$STRIPPED"; } | sed 's/^/  line /' | sort -u >&2
+  echo "" >&2
+  echo "Describe the change without naming any AI tool, and drop any" >&2
+  echo "'Co-Authored-By: <bot>' or 'Generated with ...' line, then retry." >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0
