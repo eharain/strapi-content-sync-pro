@@ -14,6 +14,20 @@
 # plain names never appear in this file and a code search of the repository
 # turns up nothing. `printf %b` is POSIX and behaves identically under Git Bash,
 # Linux and macOS.
+#
+# TWO THINGS KEEP THIS FAST, because a guard slow enough to be annoying is one
+# that gets bypassed with --no-verify, which is worse than no guard at all:
+#
+#   1. Each commit is checked ONCE, even when several refs are pushed together.
+#      Pushing three branches that point at the same history used to re-check
+#      the same commits three times over.
+#   2. A commit's added lines are fetched with ONE diff-tree and scanned whole.
+#      Only if that scan finds something does the per-file loop run, to say
+#      which file it was and to apply the lockfile and allow-list carve-outs.
+#      The old code ran a diff-tree per file per commit; on Windows, where
+#      spawning a process costs milliseconds rather than microseconds, that
+#      turned a force-push of rewritten history into thousands of spawns and
+#      minutes of waiting.
 PROVIDERS=$(printf '%b' '\143\154\141\165\144\145|\141\156\164\150\162\157\160\151\143|\143\157\160\151\154\157\164|\143\150\141\164\147\160\164|\157\160\145\156\141\151|\147\160\164-[0-9]|\143\157\144\145\151\165\155|\164\141\142\156\151\156\145|\167\151\156\144\163\165\162\146|\153\151\155\151|\144\145\145\160\163\145\145\153|\147\145\155\151\156\151|\143\157\144\145\170|\143\141\156\166\141')
 C=$(printf '%b' '\143\165\162\163\157\162')
 
@@ -27,6 +41,24 @@ z40=0000000000000000000000000000000000000000
 HITS=$(mktemp)
 PATHS=$(mktemp)
 trap 'rm -f "$HITS" "$PATHS"' EXIT
+
+SEEN=" "   # space-delimited list of commits already checked
+
+is_allowlisted() {
+  case "$1" in
+    *.githooks/*|AGENTS.md|RULES.md|.ai-rules.md|*/AGENTS.md|*/RULES.md|*/.ai-rules.md)
+      return 0 ;;
+  esac
+  return 1
+}
+
+is_lockfile() {
+  case "$1" in
+    package-lock.json|*/package-lock.json|npm-shrinkwrap.json|*/npm-shrinkwrap.json|yarn.lock|*/yarn.lock|pnpm-lock.yaml|*/pnpm-lock.yaml)
+      return 0 ;;
+  esac
+  return 1
+}
 
 check_commit() {
   c="$1"
@@ -51,28 +83,35 @@ check_commit() {
     printf '  %s (%s) MESSAGE\n' "$c" "$ref" >> "$HITS"
   fi
 
-  # File names and added lines, with pre-commit's exact carve-outs. A merge
-  # commit shows no diff here (its content arrived in parents already
-  # checked); that is the same stance `git log -p` takes.
+  # File NAMES. Cheap: one diff-tree, then shell pattern matching with no
+  # further process spawned per path.
   git diff-tree -r --no-commit-id --name-only --diff-filter=ACMR -z "$c" \
     | tr '\0' '\n' > "$PATHS"
   while IFS= read -r path; do
     [ -z "$path" ] && continue
-    case "$path" in
-      *.githooks/*|AGENTS.md|RULES.md|.ai-rules.md|*/AGENTS.md|*/RULES.md|*/.ai-rules.md)
-        continue ;;
-    esac
+    is_allowlisted "$path" && continue
     if printf '%s' "$path" | grep -qiE "$PATTERN"; then
       printf '  %s (%s) NAME: %s\n' "$c" "$ref" "$path" >> "$HITS"
     fi
-    case "$path" in
-      package-lock.json|*/package-lock.json|npm-shrinkwrap.json|*/npm-shrinkwrap.json|yarn.lock|*/yarn.lock|pnpm-lock.yaml|*/pnpm-lock.yaml)
-        continue ;;
-    esac
-    added=$(git diff-tree -r -p --no-commit-id "$c" -- "$path" \
+  done < "$PATHS"
+
+  # Added LINES. One diff-tree for the whole commit, scanned in one pass. A
+  # merge commit shows no diff here (its content arrived in parents already
+  # checked); that is the same stance `git log -p` takes.
+  added=$(git diff-tree -r -p --no-commit-id --diff-filter=ACMR "$c" \
+    | grep '^+' | grep -v '^+++')
+  printf '%s' "$added" | grep -qiE "$CONTENT_PATTERN|$CURSOR_PATTERN" || return 0
+
+  # Something matched somewhere in this commit. Only now is it worth paying for
+  # per-file attribution, so the carve-outs apply and the report names the file.
+  while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    is_allowlisted "$path" && continue
+    is_lockfile "$path" && continue
+    padded=$(git diff-tree -r -p --no-commit-id "$c" -- "$path" \
       | grep '^+' | grep -v '^+++')
-    if printf '%s' "$added" | grep -qiE "$CONTENT_PATTERN" \
-      || printf '%s' "$added" | grep -qiE "$CURSOR_PATTERN"; then
+    if printf '%s' "$padded" | grep -qiE "$CONTENT_PATTERN" \
+      || printf '%s' "$padded" | grep -qiE "$CURSOR_PATTERN"; then
       printf '  %s (%s) CONTENT: %s\n' "$c" "$ref" "$path" >> "$HITS"
     fi
   done < "$PATHS"
@@ -88,6 +127,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
 
   for c in $(git rev-list "$range" -- 2>/dev/null); do
+    case "$SEEN" in *" $c "*) continue ;; esac
+    SEEN="$SEEN$c "
     check_commit "$c" "$remote_ref"
   done
 done
