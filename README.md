@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/strapi-content-sync-pro"><img src="https://badge.fury.io/js/strapi-content-sync-pro.svg" alt="npm version" /></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="https://www.gnu.org/licenses/agpl-3.0.html"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License: AGPL-3.0" /></a>
   <a href="https://tech-style.co/products.html#content-sync"><img src="https://img.shields.io/badge/Product%20page-tech--style.co-0b7285.svg" alt="Product page" /></a>
   <img src="https://img.shields.io/badge/Strapi-v5-4945FF.svg" alt="Strapi v5" />
 </p>
@@ -22,7 +22,7 @@
   <a href="docs/screenshots.md"><b>Full gallery</b></a> ·
   <a href="https://youtu.be/hr3dD6dLgLQ"><b>Video</b></a> ·
   <a href="https://tech-style.co/products.html#content-sync"><b>Product page</b></a> ·
-  <a href="https://tech-style.co/products.html#remote-backup"><b>Free backup tool</b></a> ·
+  <a href="https://tech-style.co/product-strapi-remote-backup"><b>Free backup tool</b></a> ·
   <a href="mailto:hello@tech-style.co"><b>Contact</b></a>
 </p>
 
@@ -39,7 +39,7 @@
 > Content Sync Pro moves content **between** Strapi environments. If all you want is to
 > back up one Strapi instance and restore it, reach for its sibling instead:
 >
-> ### [Strapi Remote Backup Pro &rarr;](https://tech-style.co/products.html#remote-backup)
+> ### [Strapi Remote Backup Pro &rarr;](https://tech-style.co/product-strapi-remote-backup)
 >
 > Free and open source, and it installs **nothing into your Strapi project** — no plugin,
 > no rebuild, no redeploy. Point it at a Strapi URL, sign in with admin credentials, and
@@ -52,9 +52,9 @@
 > draft/published pairs and media. It is early: today it writes to local disk, with the
 > remaining destinations and the desktop app still in progress.
 >
-> **[Product page](https://tech-style.co/products.html#remote-backup)** &middot;
-> [Source](https://github.com/eharain/Strapi-Remote-Backup-Pro) &middot;
-> [What works today](https://github.com/eharain/Strapi-Remote-Backup-Pro/blob/main/docs/dev/worksheet.md)
+> **[Product page](https://tech-style.co/product-strapi-remote-backup)** &middot;
+> [Source](https://github.com/eharain/strapi-remote-backup-pro) &middot;
+> [What works today](https://github.com/eharain/strapi-remote-backup-pro/blob/main/docs/dev/worksheet.md)
 
 ---
 
@@ -452,14 +452,16 @@ Contributions are welcome! Please open an issue or submit a pull request.
 ## Support
 
 - Product page: [tech-style.co/products.html#content-sync](https://tech-style.co/products.html#content-sync)
-- Just need backups? [Strapi Remote Backup Pro](https://tech-style.co/products.html#remote-backup) is our free remote backup and restore tool
+- Just need backups, not sync? [Strapi Remote Backup Pro](https://tech-style.co/product-strapi-remote-backup) is our free remote backup and restore tool for Strapi — it installs nothing into your project, no plugin required ([source](https://github.com/eharain/strapi-remote-backup-pro))
 - Email: [hello@tech-style.co](mailto:hello@tech-style.co)
 - Contact form: [tech-style.co/contact.html](https://tech-style.co/contact.html)
 - Bugs & feature requests: [GitHub Issues](https://github.com/eharain/strapi-content-sync-pro/issues)
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Dual-licensed under the GNU AGPL v3.0 (see [LICENSE](LICENSE)) and a
+separate commercial license — see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+Copyright (C) 2026 Tech Style Ltd — https://tech-style.co
 
 ## Author
 

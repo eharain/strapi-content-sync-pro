@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.3.0
+
+### Changed
+
+- **Relicensed from MIT to a dual licence: GNU AGPL v3.0 or a commercial
+  licence.** Open-source use continues under the AGPL (see `LICENSE`), which
+  adds the §13 obligation to make corresponding source available to users who
+  interact with a modified version over a network. Anyone who needs to embed
+  the plugin in a closed-source product, ship a modified build without
+  publishing source, or run it as a hosted service without §13 can take a
+  commercial licence instead — see `COMMERCIAL-LICENSE.md`, which now ships in
+  the published package rather than only living in the repository.
+
+### Documentation
+
+- Retargeted the Strapi Remote Backup Pro links at its own product page,
+  `tech-style.co/product-strapi-remote-backup`, instead of the anchor on the
+  shared products page, and added the GitHub source link to the Support
+  section. The sibling tool is the better fit for anyone who only needs backup
+  and restore of a single instance — it installs nothing into the Strapi
+  project.
+
 ## 1.2.1
 
 > 1.2.0 was tagged in git but never reached npm, so installing 1.2.1 brings both
